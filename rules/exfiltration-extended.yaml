@@ -1,0 +1,11 @@
+rules:
+  - id: exfil_large_http_post
+    name: "Connection to Suspicious Exfiltration Port"
+    description: "A process connected to a non-standard port commonly used for data exfiltration"
+    event_type: 2
+    condition:
+      field: dport
+      op: in
+      values: ["4444", "31337", "8080", "1337", "6666", "9001", "9090", "1234"]
+    severity: warning
+    action: alert

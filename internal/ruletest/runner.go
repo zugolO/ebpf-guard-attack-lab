@@ -58,6 +58,20 @@ func RunSuite(t *testing.T, suitePath string, opts RunnerOptions) {
 			runTestCase(t, engine, tc)
 		})
 	}
+
+	for _, ct := range suite.Chains {
+		ct := ct
+		t.Run(ct.Name, func(t *testing.T) {
+			runChainTest(t, engine, ct)
+		})
+	}
+
+	for _, tt := range suite.ThrottleTests {
+		tt := tt
+		t.Run(tt.Name, func(t *testing.T) {
+			runThrottleTest(t, engine, tt)
+		})
+	}
 }
 
 func runTestCase(t *testing.T, engine *correlator.RuleEngine, tc TestCase) {
@@ -139,6 +153,153 @@ func alertIDs(alerts []types.Alert) []string {
 		ids[i] = a.RuleID
 	}
 	return ids
+}
+
+// runChainTest injects each step's event in order and asserts the aggregate
+// outcome according to ct.ExpectChain.
+func runChainTest(t *testing.T, engine *correlator.RuleEngine, ct ChainTest) {
+	t.Helper()
+
+	if len(ct.Chain) == 0 {
+		t.Errorf("chain test %q has no steps", ct.Name)
+		return
+	}
+
+	type stepResult struct {
+		stepIdx int
+		alerts  []types.Alert
+	}
+	results := make([]stepResult, 0, len(ct.Chain))
+
+	for i, step := range ct.Chain {
+		event, err := step.Event.Build()
+		if err != nil {
+			t.Fatalf("chain step %d build event: %v", i, err)
+		}
+		alerts := engine.Evaluate(event)
+		// Copy alerts before releasing the slice — we need them for assertions.
+		copied := make([]types.Alert, len(alerts))
+		copy(copied, alerts)
+		correlator.ReleaseAlerts(alerts)
+		results = append(results, stepResult{stepIdx: i, alerts: copied})
+	}
+
+	switch ct.ExpectChain {
+	case "all_fire":
+		for i, res := range results {
+			step := ct.Chain[i]
+			if len(res.alerts) == 0 {
+				label := step.Name
+				if label == "" {
+					label = fmt.Sprintf("step %d", i)
+				}
+				t.Errorf("chain %q: expected alert at %s but got none", ct.Name, label)
+				continue
+			}
+			if step.RuleID != "" {
+				found := false
+				for _, a := range res.alerts {
+					if a.RuleID == step.RuleID {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("chain %q step %d: rule %q not in fired alerts %v",
+						ct.Name, i, step.RuleID, alertIDs(res.alerts))
+				}
+			}
+		}
+
+	case "any_fire":
+		anyFired := false
+		for _, res := range results {
+			if len(res.alerts) > 0 {
+				anyFired = true
+				break
+			}
+		}
+		if !anyFired {
+			t.Errorf("chain %q: expected at least one step to fire but none did", ct.Name)
+		}
+
+	case "none_fire":
+		for i, res := range results {
+			if len(res.alerts) > 0 {
+				step := ct.Chain[i]
+				label := step.Name
+				if label == "" {
+					label = fmt.Sprintf("step %d", i)
+				}
+				t.Errorf("chain %q: expected no alert at %s but rules fired: %v",
+					ct.Name, label, alertIDs(res.alerts))
+			}
+		}
+
+	default:
+		t.Errorf("chain %q: unknown expect_chain value %q (want all_fire|any_fire|none_fire)",
+			ct.Name, ct.ExpectChain)
+	}
+}
+
+// runThrottleTest injects the same event Repeat times and verifies that the
+// first ExpectFirstN iterations each produce an alert and the remainder match
+// ExpectRemaining.
+func runThrottleTest(t *testing.T, engine *correlator.RuleEngine, tt ThrottleTest) {
+	t.Helper()
+
+	if tt.Repeat <= 0 {
+		t.Errorf("throttle test %q: repeat must be > 0, got %d", tt.Name, tt.Repeat)
+		return
+	}
+	if tt.ExpectFirstN < 0 || tt.ExpectFirstN > tt.Repeat {
+		t.Errorf("throttle test %q: expect_first_n=%d must be in [0, repeat=%d]",
+			tt.Name, tt.ExpectFirstN, tt.Repeat)
+		return
+	}
+
+	remaining := tt.ExpectRemaining
+	if remaining == "" {
+		remaining = ExpectNoAlert
+	}
+
+	event, err := tt.Event.Build()
+	if err != nil {
+		t.Fatalf("throttle test %q: build event: %v", tt.Name, err)
+	}
+
+	for i := 0; i < tt.Repeat; i++ {
+		alerts := engine.Evaluate(event)
+		copied := make([]types.Alert, len(alerts))
+		copy(copied, alerts)
+		correlator.ReleaseAlerts(alerts)
+
+		if i < tt.ExpectFirstN {
+			// Must fire.
+			if len(copied) == 0 {
+				t.Errorf("throttle test %q: iteration %d/%d expected alert but got none",
+					tt.Name, i+1, tt.Repeat)
+				continue
+			}
+			if tt.RuleID != "" {
+				assertRuleID(t, copied, tt.RuleID)
+			}
+		} else {
+			// Must match ExpectRemaining.
+			switch remaining {
+			case ExpectNoAlert:
+				if len(copied) > 0 {
+					t.Errorf("throttle test %q: iteration %d/%d expected no_alert but rules fired: %v",
+						tt.Name, i+1, tt.Repeat, alertIDs(copied))
+				}
+			case ExpectAlert:
+				if len(copied) == 0 {
+					t.Errorf("throttle test %q: iteration %d/%d expected alert but got none",
+						tt.Name, i+1, tt.Repeat)
+				}
+			}
+		}
+	}
 }
 
 func loadRuleSet(path string) (correlator.RuleSet, error) {

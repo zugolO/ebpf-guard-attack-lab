@@ -1,0 +1,15 @@
+rules:
+  - id: tls_ja3_cobalt_strike_default
+    name: "Cobalt Strike Default JA3 TLS Fingerprint"
+    description: "TLS connection with a JA3 hash matching known Cobalt Strike default profiles"
+    event_type: 6
+    condition:
+      field: ja3
+      op: in
+      values:
+        - "a0e9f5d64349fb13191bc781f81f42e1"
+        - "72a589da586844d7f0818ce684948eea"
+        - "fd4bc6cea4e02583e5dce8c2d8bf8c2f"
+        - "b386946a5a44d1ddcc843bc75336dfce"
+    severity: critical
+    action: alert

@@ -1,0 +1,30 @@
+rules:
+  - id: supply_chain_cicd_runner_network
+    name: "CI/CD Runner Non-Standard Network Connection"
+    description: "A process connected to a non-standard port during build/install phase"
+    event_type: 2
+    condition:
+      field: dport
+      op: not_in
+      values: ["80", "443", "22", "25", "53", "8443"]
+    severity: warning
+    action: alert
+
+  - id: supply_chain_pkg_install_etc_write
+    name: "Package Install Writing to /etc"
+    description: "A package manager or build tool wrote to a sensitive /etc path"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: in
+          values: [create, write]
+        - field: comm
+          op: in
+          values: [python3, python, npm, pip, pip3, gem, node, ruby, go, cargo, mvn, gradle]
+        - field: filename
+          op: prefix
+          values: ["/etc/"]
+    severity: critical
+    action: alert

@@ -1,0 +1,57 @@
+rules:
+  - id: integrity_lib_replaced
+    name: "System Library Replaced"
+    description: "A shared library was written by an unexpected process in a system library directory"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: in
+          values: [write, create]
+        - field: filename
+          op: prefix
+          values: ["/lib/", "/usr/lib/", "/lib64/"]
+        - field: filename
+          op: contains
+          values: [".so"]
+        - field: comm
+          op: not_in
+          values: [dpkg, ldconfig, apt, apt-get, rpm, yum, snap]
+    severity: critical
+    action: alert
+
+  - id: integrity_ld_so_preload_write
+    name: "LD_PRELOAD Hijack File Written"
+    description: "/etc/ld.so.preload was written, enabling library injection into every process"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: in
+          values: [write, create]
+        - field: filename
+          op: equals
+          values: ["/etc/ld.so.preload"]
+    severity: critical
+    action: alert
+
+  - id: integrity_ld_cache_write
+    name: "Dynamic Linker Cache Modified"
+    description: "/etc/ld.so.conf.d/ was modified to redirect shared library loading"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: in
+          values: [write, create]
+        - field: filename
+          op: prefix
+          values: ["/etc/ld.so.conf.d/"]
+        - field: comm
+          op: not_in
+          values: [ldconfig, dpkg, apt, apt-get, rpm]
+    severity: critical
+    action: alert

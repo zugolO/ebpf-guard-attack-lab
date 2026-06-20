@@ -1,0 +1,43 @@
+rules:
+  - id: k8s_sa_token_read
+    name: "Kubernetes Service Account Token Read"
+    description: "A process read the Kubernetes service account token"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: in
+          values: [read, open]
+        - field: filename
+          op: prefix
+          values: ["/var/run/secrets/kubernetes.io/serviceaccount/", "/run/secrets/kubernetes.io/serviceaccount/"]
+    severity: critical
+    action: alert
+
+  - id: k8s_sa_token_projected_read
+    name: "Kubernetes Projected Service Account Token Read"
+    description: "A process read a cloud-provider projected service account token"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: in
+          values: [read, open]
+        - field: filename
+          op: prefix
+          values: ["/var/run/secrets/eks.", "/var/run/secrets/gke.", "/var/run/secrets/azure"]
+    severity: critical
+    action: alert
+
+  - id: k8s_etcd_direct_access
+    name: "Direct etcd Access"
+    description: "A process connected directly to the etcd API server"
+    event_type: 2
+    condition:
+      field: dport
+      op: in
+      values: ["2379", "2380"]
+    severity: critical
+    action: alert

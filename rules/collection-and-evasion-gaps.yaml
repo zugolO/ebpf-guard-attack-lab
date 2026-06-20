@@ -1,0 +1,16 @@
+rules:
+  - id: collection_direct_db_file_access
+    name: "Direct Database File Access"
+    description: "A non-database process directly accessed database data files"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: in
+          values: [open, read]
+        - field: filename
+          op: prefix
+          values: ["/var/lib/mysql/", "/var/lib/postgresql/", "/var/lib/mongodb/", "/var/lib/etcd/", "/data/db/"]
+    severity: warning
+    action: alert

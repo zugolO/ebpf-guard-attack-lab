@@ -1,0 +1,89 @@
+suite: chain_and_throttle
+rules_path: ../../rules/persistence.yaml
+tests: []
+
+# ── Multi-event chain tests ───────────────────────────────────────────────────
+chains:
+  - name: "attacker plants cron then SSH key (all steps fire)"
+    expect_chain: all_fire
+    chain:
+      - name: "cron job dropped"
+        rule_id: persistence_cron_write
+        event:
+          type: file
+          comm: bash
+          file:
+            filename: "/etc/cron.d/backdoor"
+            op: create
+
+      - name: "SSH authorized_keys written"
+        rule_id: persistence_ssh_authorized_keys
+        event:
+          type: file
+          comm: curl
+          file:
+            filename: "/root/.ssh/authorized_keys"
+            op: write
+
+  - name: "normal package install – no persistence alert"
+    expect_chain: none_fire
+    chain:
+      - name: "dpkg writes service file"
+        event:
+          type: file
+          comm: dpkg
+          file:
+            filename: "/etc/systemd/system/nginx.service"
+            op: create
+
+      - name: "crontab updates its own spool"
+        event:
+          type: file
+          comm: crontab
+          file:
+            filename: "/var/spool/cron/crontabs/root"
+            op: write
+
+  - name: "mixed sequence – at least one step fires"
+    expect_chain: any_fire
+    chain:
+      - name: "safe dpkg write"
+        event:
+          type: file
+          comm: dpkg
+          file:
+            filename: "/etc/systemd/system/safe.service"
+            op: create
+
+      - name: "malicious SSH key write"
+        rule_id: persistence_ssh_authorized_keys
+        event:
+          type: file
+          comm: nc
+          file:
+            filename: "/home/user/.ssh/authorized_keys"
+            op: create
+
+# ── Throttle / sampling regression tests ─────────────────────────────────────
+throttle_tests:
+  - name: "SSH authorized_keys rule fires on every repeated write (sample_rate=1.0)"
+    rule_id: persistence_ssh_authorized_keys
+    repeat: 5
+    expect_first_n: 5
+    event:
+      type: file
+      comm: bash
+      file:
+        filename: "/root/.ssh/authorized_keys"
+        op: write
+
+  - name: "allowlisted cron write never fires across 3 repetitions"
+    repeat: 3
+    expect_first_n: 0
+    expect_remaining: no_alert
+    event:
+      type: file
+      comm: crontab
+      file:
+        filename: "/var/spool/cron/crontabs/root"
+        op: write

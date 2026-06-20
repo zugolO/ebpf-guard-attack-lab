@@ -1,0 +1,92 @@
+rules:
+  - id: webshell_php_in_web_root
+    name: "PHP File Written to Web Root"
+    description: "A PHP script was created or written in a known web root directory"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: in
+          values: [write, create]
+        - field: filename
+          op: prefix
+          values: ["/var/www/", "/srv/www/", "/usr/share/nginx/"]
+        - field: extension
+          op: in
+          values: [".php", ".php5", ".php7", ".phar"]
+    severity: critical
+    action: alert
+
+  - id: webshell_jsp_in_web_root
+    name: "JSP File Written to Web Application Directory"
+    description: "A JSP file was created or written in a Java web application directory"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: in
+          values: [write, create]
+        - field: filename
+          op: prefix
+          values: ["/opt/tomcat/", "/opt/jboss/"]
+        - field: extension
+          op: in
+          values: [".jsp", ".jspx"]
+    severity: critical
+    action: alert
+
+  - id: webshell_asp_written
+    name: "ASP/ASPX File Written to Web Root"
+    description: "An ASP or ASPX file was created or written in a web root directory"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: in
+          values: [write, create]
+        - field: filename
+          op: prefix
+          values: ["/var/www/", "/srv/www/"]
+        - field: extension
+          op: in
+          values: [".asp", ".aspx"]
+    severity: critical
+    action: alert
+
+  - id: webshell_script_write_via_web_process
+    name: "Script File Written by Web Server Process"
+    description: "A web server process wrote a script file, indicating possible code injection"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: in
+          values: [write, create]
+        - field: comm
+          op: in
+          values: [apache2, nginx, httpd, php-fpm, lighttpd]
+        - field: extension
+          op: in
+          values: [".sh", ".phtml", ".cgi", ".py", ".pl"]
+    severity: critical
+    action: alert
+
+  - id: webshell_common_filename
+    name: "Known Web Shell Filename Detected"
+    description: "A file with a name matching known web shell tools was written"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: in
+          values: [write, create]
+        - field: filename
+          op: contains
+          values: ["c99", "r57", "b374k", "weevely", "chopper", "webshell", "cmd.jsp", "cmdjsp"]
+    severity: critical
+    action: alert

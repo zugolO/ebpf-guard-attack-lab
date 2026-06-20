@@ -1,0 +1,41 @@
+rules:
+  - id: ebpf_subversion_detach_nonroot
+    name: "Non-Root BPF Manipulation"
+    description: "A non-root process attempted to manipulate or detach a BPF program"
+    event_type: 1
+    condition_group:
+      operator: and
+      conditions:
+        - field: nr
+          op: equals
+          values: ["321"]
+        - field: uid
+          op: not_equals
+          values: ["0"]
+        - field: arg0
+          op: in
+          values: ["3", "6", "9", "33"]
+    severity: critical
+    action: alert
+
+  - id: ebpf_subversion_unauthorized_caller
+    name: "Unauthorized Root BPF Manipulation"
+    description: "An unauthorized root process attempted to detach or pin a BPF program"
+    event_type: 1
+    condition_group:
+      operator: and
+      conditions:
+        - field: nr
+          op: equals
+          values: ["321"]
+        - field: uid
+          op: equals
+          values: ["0"]
+        - field: arg0
+          op: in
+          values: ["3", "6", "9", "33"]
+        - field: comm
+          op: not_in
+          values: [ebpf-guard]
+    severity: critical
+    action: alert
