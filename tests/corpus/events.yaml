@@ -1,0 +1,105 @@
+events:
+  # TLS: Cobalt Strike default JA3 fingerprint → tls_ja3_cobalt_strike_default
+  - type: tls
+    pid: 1000
+    comm: curl
+    tls:
+      ja3: "a0e9f5d64349fb13191bc781f81f42e1"
+
+  # File: systemd service drop → persistence_systemd_new_service
+  - type: file
+    pid: 1001
+    comm: malware
+    file:
+      filename: "/etc/systemd/system/backdoor.service"
+      op: create
+
+  # File: cron job write → persistence_cron_write
+  - type: file
+    pid: 1002
+    comm: sh
+    file:
+      filename: "/etc/cron.d/c2-beacon"
+      op: create
+
+  # Syscall: system recon → recon_system_info
+  - type: syscall
+    pid: 1003
+    comm: uname
+    syscall:
+      nr: 59
+
+  # Network: C2 callback on exfil port → exfil_large_http_post
+  - type: network
+    pid: 1004
+    comm: bash
+    network:
+      src_ip: "10.0.0.5"
+      dst_ip: "185.220.101.1"
+      dport: 4444
+
+  # File: webshell drop → initial_web_shell_write
+  - type: file
+    pid: 1005
+    comm: python3
+    file:
+      filename: "/var/www/html/shell.php"
+      op: create
+
+  # Kmod: rootkit module from tmpfs → kmod_load_from_tmpfs + kmod_unexpected_parent
+  - type: kmod
+    pid: 1006
+    comm: malware
+    parent_comm: malware
+    kmod:
+      name: "rootkit"
+      from_tmpfs: true
+
+  # Network: benign HTTPS (no alert expected)
+  - type: network
+    pid: 1007
+    comm: curl
+    network:
+      src_ip: "10.0.0.5"
+      dst_ip: "8.8.8.8"
+      dport: 80
+
+  # File: system binary replaced → evasion_system_binary_replace + fim_binary_replaced_in_system_dir
+  - type: file
+    pid: 1008
+    comm: malware
+    file:
+      filename: "/usr/bin/python3"
+      op: create
+
+  # File: shared library replaced → fim_library_replaced
+  - type: file
+    pid: 1009
+    comm: malware
+    file:
+      filename: "/lib/libfoo.so.1"
+      op: write
+
+  # File: /etc/passwd written → fim_passwd_write
+  - type: file
+    pid: 1010
+    comm: malware
+    file:
+      filename: "/etc/passwd"
+      op: write
+
+  # Syscall: chmod on sensitive file → evasion_chmod_sensitive
+  - type: syscall
+    pid: 1011
+    comm: malware
+    syscall:
+      nr: 90
+
+  # BPF: unauthorized XDP program load → bpf_prog_load_unauthorized + bpf_xdp_tc_unauthorized
+  - type: bpf_program
+    pid: 1012
+    comm: malware
+    bpf_program:
+      cmd_nr: 5
+      prog_type: XDP
+      ret: 3
