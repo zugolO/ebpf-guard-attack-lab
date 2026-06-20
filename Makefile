@@ -9,6 +9,8 @@
 # Required env vars for integration:
 #   EBPF_GUARD_BINARY       path to ebpf-guard binary (optional, auto-starts daemon)
 #   EBPF_GUARD_ALERT_SOCKET unix socket path for alerts (default: /run/ebpf-guard/alerts.sock)
+#   CUDA_MOCK_LIB           path to stub libcuda.so.1 for GPU tests without real GPU
+#                           (GPU tests skip automatically when unset and libcuda not found)
 #
 # Required env vars for k8s:
 #   KUBECONFIG              path to kubeconfig
@@ -53,5 +55,5 @@ setup-vm:
 # ── Lint / static checks ─────────────────────────────────────────────────────
 lint:
 	go vet ./...
-	python3 -m py_compile $(INT_DIR)/conftest.py $(INT_DIR)/attacks/*.py
+	python3 -m py_compile $(INT_DIR)/conftest.py $(INT_DIR)/attacks/*.py $(INT_DIR)/test_*.py
 	python3 -m py_compile $(K8S_DIR)/conftest.py $(K8S_DIR)/test_*.py

@@ -1,0 +1,67 @@
+rules:
+  - id: gpu_large_alloc_unusual
+    name: "Unusual Large GPU Memory Allocation"
+    description: >
+      A process allocated more than 500 MiB of GPU memory in a single call.
+      This is a hallmark of crypto-mining software, which typically reserves
+      the entire GPU memory to maximise hash rate. Legitimate ML frameworks
+      allocate memory incrementally as the model graph is built, not in one
+      large upfront reservation.
+    event_type: 11
+    condition_group:
+      operator: and
+      conditions:
+        - field: gpu_op
+          op: equals
+          values: ["alloc"]
+        - field: gpu_size
+          op: gt
+          values: ["524288000"]        # 500 MiB in bytes
+        - field: comm
+          op: not_in
+          values: [nvidia-smi, cudnn-benchmark, ebpf-guard,
+                   pytorch-serve, tensorflow-serv, triton]
+    severity: critical
+    action: alert
+
+  - id: gpu_kernel_launch_unauthorized
+    name: "Unauthorized GPU Kernel Launch"
+    description: >
+      A GPU compute kernel was launched by a process that is not in the
+      known ML / scientific-compute allowlist. Rootkits and advanced miners
+      can load custom CUDA kernels to perform computation while hiding inside
+      innocent-looking process names.
+    event_type: 11
+    condition_group:
+      operator: and
+      conditions:
+        - field: gpu_op
+          op: equals
+          values: ["kernel_launch"]
+        - field: comm
+          op: not_in
+          values: [nvidia-smi, python3, pytorch-serve, tensorflow-serv,
+                   triton, cudnn-benchmark, nemo, deepspeed, ebpf-guard]
+    severity: warning
+    action: alert
+
+  - id: gpu_mining_pattern
+    name: "GPU Mining Data Transfer Pattern"
+    description: >
+      A process is performing host-to-device memory copies — the main data
+      ingestion step in a crypto-mining work loop. This rule fires when the
+      initiating process is not in the known compute-workload allowlist.
+      Pair with gpu_large_alloc_unusual alerts for higher-confidence detection.
+    event_type: 11
+    condition_group:
+      operator: and
+      conditions:
+        - field: gpu_op
+          op: equals
+          values: ["memcpy_htod"]
+        - field: comm
+          op: not_in
+          values: [nvidia-smi, python3, pytorch-serve, tensorflow-serv,
+                   triton, cudnn-benchmark, deepspeed, ebpf-guard]
+    severity: warning
+    action: alert
