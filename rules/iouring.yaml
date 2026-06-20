@@ -1,0 +1,54 @@
+rules:
+  - id: iouring_unexpected_setup
+    name: "Unexpected io_uring Setup"
+    description: "An unexpected process called io_uring_setup"
+    event_type: 8
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: equals
+          values: [setup]
+        - field: comm
+          op: not_in
+          values: [nginx, postgres, containerd, redis-server, mysql, io_uring_test]
+    severity: warning
+    action: alert
+
+  - id: iouring_unexpected_enter
+    name: "Unexpected io_uring Submission"
+    description: "An unexpected process submitted work via io_uring_enter"
+    event_type: 8
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: equals
+          values: [enter]
+        - field: to_submit
+          op: gt
+          values: ["0"]
+        - field: comm
+          op: not_in
+          values: [mysql, redis-server, postgres, nginx, containerd]
+    severity: critical
+    action: alert
+
+  - id: iouring_high_volume_submit
+    name: "High-Volume io_uring Submission"
+    description: "A process submitted an unusually large batch via io_uring"
+    event_type: 8
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: equals
+          values: [enter]
+        - field: to_submit
+          op: gt
+          values: ["32"]
+        - field: comm
+          op: not_in
+          values: [postgres, mysql, nginx, redis-server]
+    severity: warning
+    action: alert

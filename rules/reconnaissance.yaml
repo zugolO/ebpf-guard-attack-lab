@@ -1,0 +1,64 @@
+rules:
+  - id: recon_system_info
+    name: "System Information Discovery"
+    description: "A system information tool was executed for reconnaissance"
+    event_type: 1
+    condition_group:
+      operator: and
+      conditions:
+        - field: nr
+          op: equals
+          values: ["59"]
+        - field: comm
+          op: in
+          values: [uname, lscpu, dmidecode, lshw, hostnamectl]
+    severity: warning
+    action: alert
+
+  - id: recon_network_config
+    name: "Network Configuration Discovery"
+    description: "A network configuration tool was executed for reconnaissance"
+    event_type: 1
+    condition_group:
+      operator: and
+      conditions:
+        - field: nr
+          op: equals
+          values: ["59"]
+        - field: comm
+          op: in
+          values: [ifconfig, ip, nmcli, iwconfig, route]
+    severity: warning
+    action: alert
+
+  - id: recon_active_connections
+    name: "Active Network Connections Discovery"
+    description: "A network scanning or connection enumeration tool was executed"
+    event_type: 1
+    condition_group:
+      operator: and
+      conditions:
+        - field: nr
+          op: equals
+          values: ["59"]
+        - field: comm
+          op: in
+          values: [netstat, ss, nmap, arp, iftop]
+    severity: warning
+    action: alert
+
+  - id: recon_user_enum
+    name: "User Account Enumeration"
+    description: "A process enumerated user accounts for reconnaissance"
+    event_type: 1
+    condition_group:
+      operator: and
+      conditions:
+        - field: nr
+          op: equals
+          values: ["59"]
+        - field: comm
+          op: in
+          values: [id, whoami, w, who, last, getent]
+    severity: warning
+    action: alert

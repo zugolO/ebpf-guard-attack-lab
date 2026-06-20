@@ -1,0 +1,16 @@
+rules:
+  - id: drift_new_exec_critical
+    name: "New Binary Executed in System Directory"
+    description: "A process opened a binary in a critical system directory, indicating possible drift"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: equals
+          values: [open]
+        - field: filename
+          op: prefix
+          values: ["/usr/bin/", "/bin/", "/usr/sbin/", "/usr/local/bin/"]
+    severity: critical
+    action: alert

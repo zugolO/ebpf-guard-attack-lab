@@ -1,0 +1,32 @@
+rules:
+  - id: ransomware_mass_rename
+    name: "Mass File Rename Detected"
+    description: "Files are being renamed in bulk, consistent with ransomware encryption"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: equals
+          values: [rename]
+        - field: filename
+          op: not_prefix
+          values: ["/tmp/", "/proc/", "/sys/", "/dev/"]
+    severity: critical
+    action: alert
+
+  - id: ransomware_encrypted_extension
+    name: "Ransomware File Extension Detected"
+    description: "A file was written with a known ransomware encrypted file extension"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: in
+          values: [create, write]
+        - field: extension
+          op: in
+          values: [".locked", ".enc", ".crypt", ".wncry", ".locky", ".encrypted", ".zepto", ".cerber"]
+    severity: critical
+    action: alert

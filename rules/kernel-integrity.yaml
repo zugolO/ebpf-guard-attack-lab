@@ -1,0 +1,22 @@
+rules:
+  - id: kmod_unexpected_parent
+    name: "Kernel Module Loaded from Unexpected Parent"
+    description: "A kernel module was loaded by a process whose parent is not a trusted module loader"
+    event_type: 9
+    condition:
+      field: parent_comm
+      op: not_in
+      values: [modprobe, systemd, udevadm, kmod, insmod]
+    severity: critical
+    action: alert
+
+  - id: kmod_load_from_tmpfs
+    name: "Kernel Module Loaded from Tmpfs"
+    description: "A kernel module was loaded from /tmp or /dev/shm"
+    event_type: 9
+    condition:
+      field: from_tmpfs
+      op: equals
+      values: ["true"]
+    severity: critical
+    action: alert

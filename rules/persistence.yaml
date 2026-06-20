@@ -1,0 +1,57 @@
+rules:
+  - id: persistence_systemd_new_service
+    name: "New Systemd Service Created"
+    description: "A new systemd service unit was written outside of a package manager"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: in
+          values: [create, write]
+        - field: filename
+          op: prefix
+          values: ["/etc/systemd/system/", "/run/systemd/system/"]
+        - field: filename
+          op: suffix
+          values: [".service"]
+        - field: comm
+          op: not_in
+          values: [dpkg, apt, apt-get, rpm, yum, snap, systemctl]
+    severity: warning
+    action: alert
+
+  - id: persistence_cron_write
+    name: "Cron Job Added"
+    description: "A cron job was written to a cron directory or crontab file"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: in
+          values: [create, write]
+        - field: filename
+          op: prefix
+          values: ["/etc/cron.d/", "/var/spool/cron/", "/etc/cron.hourly/", "/etc/cron.daily/", "/etc/cron.weekly/"]
+        - field: comm
+          op: not_in
+          values: [crontab, dpkg, apt]
+    severity: warning
+    action: alert
+
+  - id: persistence_ssh_authorized_keys
+    name: "SSH Authorized Keys Modified"
+    description: "An SSH authorized_keys file was written, adding a persistent SSH backdoor"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: in
+          values: [write, create]
+        - field: filename
+          op: suffix
+          values: [authorized_keys, authorized_keys2]
+    severity: critical
+    action: alert

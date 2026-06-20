@@ -1,0 +1,54 @@
+rules:
+  - id: initial_web_shell_write
+    name: "Web Shell Written to Web Root"
+    description: "A server-side scripting file was written to a web root directory"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: in
+          values: [create, write]
+        - field: comm
+          op: not_in
+          values: [rsync, git, scp, ansible, deploy]
+        - field: filename
+          op: prefix
+          values: ["/var/www/", "/opt/tomcat/", "/srv/www/", "/usr/share/nginx/"]
+        - field: filename
+          op: suffix
+          values: [".php", ".jsp", ".php5", ".phar", ".asp", ".aspx", ".php7"]
+    severity: critical
+    action: alert
+
+  - id: initial_office_macro_exec
+    name: "Shell Spawned from Document Process"
+    description: "A shell or interpreter was spawned, possibly from an office macro"
+    event_type: 1
+    condition_group:
+      operator: and
+      conditions:
+        - field: nr
+          op: equals
+          values: ["59"]
+        - field: comm
+          op: in
+          values: [bash, python3, python, perl, ruby, sh]
+    severity: warning
+    action: alert
+
+  - id: initial_package_postinstall_network
+    name: "Build Tool Network Connection"
+    description: "A build or package-install tool made an unexpected network connection"
+    event_type: 2
+    condition_group:
+      operator: and
+      conditions:
+        - field: comm
+          op: in
+          values: [make, cmake, configure, install, setup.py]
+        - field: dport
+          op: in
+          values: ["80", "443"]
+    severity: warning
+    action: alert

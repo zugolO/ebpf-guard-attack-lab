@@ -1,0 +1,19 @@
+rules:
+  - id: impact_systemd_service_disabled
+    name: "Systemd Service Stopped by Root"
+    description: "Root used systemctl or service to stop/disable a service"
+    event_type: 1
+    condition_group:
+      operator: and
+      conditions:
+        - field: nr
+          op: equals
+          values: ["59"]
+        - field: uid
+          op: equals
+          values: ["0"]
+        - field: comm
+          op: in
+          values: [systemctl, service]
+    severity: critical
+    action: alert

@@ -34,8 +34,59 @@ type Suite struct {
 	// file or directory to load before running the tests.
 	// When empty the caller must supply rules via the Runner.RulesDir option.
 	RulesPath string `yaml:"rules_path,omitempty"`
-	// Tests is the list of test cases in this suite.
+	// Tests is the list of single-event test cases in this suite.
 	Tests []TestCase `yaml:"tests"`
+	// Chains is an optional list of multi-event chain tests.
+	Chains []ChainTest `yaml:"chains,omitempty"`
+	// ThrottleTests is an optional list of sampling/throttle regression tests.
+	ThrottleTests []ThrottleTest `yaml:"throttle_tests,omitempty"`
+}
+
+// ChainStep is one event in a multi-event chain test.
+type ChainStep struct {
+	// Name optionally labels this step for diagnostic output.
+	Name string `yaml:"name,omitempty"`
+	// RuleID is the rule expected to fire for this step (used with all_fire).
+	RuleID string `yaml:"rule_id,omitempty"`
+	// Event is the synthetic event to inject into the rule engine.
+	Event EventSpec `yaml:"event"`
+}
+
+// ChainTest exercises an ordered sequence of events and asserts on the
+// aggregate alert outcome across the whole sequence.
+type ChainTest struct {
+	// Name is a human-readable description of the chain test.
+	Name string `yaml:"name"`
+	// Chain is the ordered list of events to inject.
+	Chain []ChainStep `yaml:"chain"`
+	// ExpectChain is the aggregate assertion:
+	//   all_fire  – every step must produce at least one alert; when a step
+	//               carries a rule_id, that specific rule must be among those fired.
+	//   any_fire  – at least one step must produce at least one alert.
+	//   none_fire – no step may produce any alert.
+	ExpectChain string `yaml:"expect_chain"`
+}
+
+// ThrottleTest exercises a single event injected Repeat times and asserts that
+// the first ExpectFirstN injections each produce an alert and the remainder
+// produce ExpectRemaining. It is useful for regression-testing rules whose
+// sample_rate is 1.0 (always fires) as well as future per-rule throttle logic.
+type ThrottleTest struct {
+	// Name is a human-readable description of the throttle test.
+	Name string `yaml:"name"`
+	// RuleID is the rule that must appear in each alert for the first
+	// ExpectFirstN events (optional; when empty, any alert satisfies the check).
+	RuleID string `yaml:"rule_id,omitempty"`
+	// Event is the event to inject Repeat times.
+	Event EventSpec `yaml:"event"`
+	// Repeat is the total number of times to inject Event.
+	Repeat int `yaml:"repeat"`
+	// ExpectFirstN is the number of leading injections that must each produce
+	// an alert. Must be ≤ Repeat.
+	ExpectFirstN int `yaml:"expect_first_n"`
+	// ExpectRemaining is the expected outcome for the Repeat-ExpectFirstN events
+	// after the first ExpectFirstN. Defaults to "no_alert" when omitted.
+	ExpectRemaining Expectation `yaml:"expect_remaining,omitempty"`
 }
 
 // TestCase is a single unit test that exercises one synthetic event.

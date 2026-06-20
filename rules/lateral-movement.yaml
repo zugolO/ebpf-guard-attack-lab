@@ -1,0 +1,140 @@
+rules:
+  - id: lateral_ssh_from_container
+    name: "SSH Client Executed from Container"
+    description: "An SSH client was executed, possibly for lateral movement from a container"
+    event_type: 1
+    condition_group:
+      operator: and
+      conditions:
+        - field: nr
+          op: equals
+          values: ["59"]
+        - field: comm
+          op: in
+          values: [ssh, sshpass, autossh]
+    severity: warning
+    action: alert
+
+  - id: lateral_ssh_keygen_new_key
+    name: "SSH Key Generated"
+    description: "A new SSH key pair was generated, possibly for backdoor access"
+    event_type: 1
+    condition_group:
+      operator: and
+      conditions:
+        - field: nr
+          op: equals
+          values: ["59"]
+        - field: comm
+          op: equals
+          values: [ssh-keygen]
+    severity: warning
+    action: alert
+
+  - id: lateral_port_forward_ssh
+    name: "SSH Port Forwarding Detected"
+    description: "SSH connected to a non-standard port, indicating possible tunnel or pivoting"
+    event_type: 2
+    condition_group:
+      operator: and
+      conditions:
+        - field: comm
+          op: equals
+          values: [ssh]
+        - field: dport
+          op: not_equals
+          values: ["22"]
+    severity: warning
+    action: alert
+
+  - id: lateral_tool_transfer_wget
+    name: "Download Tool Network Connection"
+    description: "A download tool (wget/curl) made a network connection, indicating tool transfer"
+    event_type: 2
+    condition:
+      field: comm
+      op: in
+      values: [wget, curl]
+    severity: warning
+    action: alert
+
+  - id: lateral_rdp_connection
+    name: "RDP Connection Detected"
+    description: "An outbound RDP connection was observed"
+    event_type: 2
+    condition:
+      field: dport
+      op: equals
+      values: ["3389"]
+    severity: warning
+    action: alert
+
+  - id: lateral_kubectl_exec_from_pod
+    name: "kubectl Executed Inside Pod"
+    description: "kubectl or a Kubernetes management tool was executed inside a pod"
+    event_type: 1
+    condition_group:
+      operator: and
+      conditions:
+        - field: nr
+          op: equals
+          values: ["59"]
+        - field: comm
+          op: in
+          values: [kubectl, k9s, helm, istioctl]
+    severity: critical
+    action: alert
+
+  - id: lateral_ssh_agent_socket_access
+    name: "SSH Agent Socket Accessed"
+    description: "An unexpected process accessed an SSH agent socket for credential theft"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: equals
+          values: [open]
+        - field: filename
+          op: prefix
+          values: ["/tmp/ssh-"]
+        - field: comm
+          op: not_in
+          values: [ssh, scp, sftp, rsync, git]
+    severity: warning
+    action: alert
+
+  - id: lateral_netcat_socat_pivot
+    name: "Network Pivot Tool Executed"
+    description: "A network pivoting or relay tool was executed"
+    event_type: 1
+    condition_group:
+      operator: and
+      conditions:
+        - field: nr
+          op: equals
+          values: ["59"]
+        - field: comm
+          op: in
+          values: [nc, socat, nmap, ncat, netcat]
+    severity: warning
+    action: alert
+
+  - id: lateral_shared_volume_exec
+    name: "Payload Written to Shared Volume by Root"
+    description: "Root wrote an executable to a shared or mounted volume"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: uid
+          op: equals
+          values: ["0"]
+        - field: op
+          op: in
+          values: [write, create]
+        - field: filename
+          op: prefix
+          values: ["/shared/", "/mnt/"]
+    severity: warning
+    action: alert
