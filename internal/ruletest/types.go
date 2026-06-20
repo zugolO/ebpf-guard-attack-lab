@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -72,22 +73,26 @@ func (tc TestCase) effectiveExpectRuleID() string {
 
 // EventSpec describes a synthetic event in YAML.
 type EventSpec struct {
-	Type       string          `yaml:"type"`
-	PID        uint32          `yaml:"pid,omitempty"`
-	TGID       uint32          `yaml:"tgid,omitempty"`
-	UID        uint32          `yaml:"uid,omitempty"`
-	Comm       string          `yaml:"comm,omitempty"`
-	ProcArgs   string          `yaml:"proc_args,omitempty"`
-	ParentComm string          `yaml:"parent_comm,omitempty"`
-	Syscall    *SyscallSpec    `yaml:"syscall,omitempty"`
-	Network    *NetworkSpec    `yaml:"network,omitempty"`
-	File       *FileSpec       `yaml:"file,omitempty"`
-	DNS        *DNSSpec        `yaml:"dns,omitempty"`
-	Privesc    *PrivescSpec    `yaml:"privesc,omitempty"`
-	TLS        *TLSSpec        `yaml:"tls,omitempty"`
-	BPFProgram *BPFProgramSpec `yaml:"bpf_program,omitempty"`
-	IOUring    *IOUringSpec    `yaml:"iouring,omitempty"`
-	Kmod       *KmodSpec       `yaml:"kmod,omitempty"`
+	Type              string          `yaml:"type"`
+	PID               uint32          `yaml:"pid,omitempty"`
+	TGID              uint32          `yaml:"tgid,omitempty"`
+	UID               uint32          `yaml:"uid,omitempty"`
+	Comm              string          `yaml:"comm,omitempty"`
+	ProcArgs          string          `yaml:"proc_args,omitempty"`
+	ProcArgsTruncated bool            `yaml:"proc_args_truncated,omitempty"`
+	ParentComm        string          `yaml:"parent_comm,omitempty"`
+	Syscall           *SyscallSpec    `yaml:"syscall,omitempty"`
+	Network           *NetworkSpec    `yaml:"network,omitempty"`
+	File              *FileSpec       `yaml:"file,omitempty"`
+	DNS               *DNSSpec        `yaml:"dns,omitempty"`
+	Privesc           *PrivescSpec    `yaml:"privesc,omitempty"`
+	TLS               *TLSSpec        `yaml:"tls,omitempty"`
+	BPFProgram        *BPFProgramSpec `yaml:"bpf_program,omitempty"`
+	IOUring           *IOUringSpec    `yaml:"iouring,omitempty"`
+	Kmod              *KmodSpec       `yaml:"kmod,omitempty"`
+	GPU               *GPUSpec        `yaml:"gpu,omitempty"`
+	CloudAudit        *CloudAuditSpec `yaml:"cloud_audit,omitempty"`
+	NetClose          *NetCloseSpec   `yaml:"net_close,omitempty"`
 }
 
 // TLSSpec describes a TLS plaintext inspection event payload.
@@ -170,11 +175,44 @@ type NetworkSpec struct {
 
 // FileSpec describes a file-access event payload.
 type FileSpec struct {
-	Filename string `yaml:"filename,omitempty"`
-	FDName   string `yaml:"fd_name,omitempty"` // fd-enriched path (issue #47)
-	Flags    int32  `yaml:"flags,omitempty"`
-	Mode     uint32 `yaml:"mode,omitempty"`
-	Op       string `yaml:"op,omitempty"` // "open", "read", "write"
+	Filename        string `yaml:"filename,omitempty"`
+	FDName          string `yaml:"fd_name,omitempty"`          // fd-enriched path
+	FDNameTruncated bool   `yaml:"fd_name_truncated,omitempty"` // sets FDPathTruncated
+	Flags           int32  `yaml:"flags,omitempty"`
+	Mode            uint32 `yaml:"mode,omitempty"`
+	Op              string `yaml:"op,omitempty"` // "open", "read", "write"
+}
+
+// GPUSpec describes a GPU operation event (CUDA/ROCm intercept).
+type GPUSpec struct {
+	Op      string `yaml:"op"`                 // "alloc", "free", "memcpy_htod", etc.
+	Size    uint64 `yaml:"size,omitempty"`
+	DevPtr  uint64 `yaml:"dev_ptr,omitempty"`
+	HostPtr uint64 `yaml:"host_ptr,omitempty"`
+}
+
+// CloudAuditSpec describes a cloud-provider audit log event.
+type CloudAuditSpec struct {
+	Provider    string `yaml:"provider"`
+	Service     string `yaml:"service"`
+	Action      string `yaml:"action"`
+	Principal   string `yaml:"principal,omitempty"`
+	ResourceARN string `yaml:"resource,omitempty"`
+	SourceIP    string `yaml:"source_ip,omitempty"`
+	UserAgent   string `yaml:"user_agent,omitempty"`
+	ErrorCode   string `yaml:"error_code,omitempty"`
+	Region      string `yaml:"region,omitempty"`
+	EventID     string `yaml:"event_id,omitempty"`
+}
+
+// NetCloseSpec describes a TCP connection-close event.
+type NetCloseSpec struct {
+	SrcIP      string `yaml:"src_ip,omitempty"`
+	DstIP      string `yaml:"dst_ip,omitempty"`
+	Sport      uint16 `yaml:"sport,omitempty"`
+	Dport      uint16 `yaml:"dport,omitempty"`
+	Family     string `yaml:"family,omitempty"` // "ipv4" (default) or "ipv6"
+	DurationMs int64  `yaml:"duration_ms,omitempty"`
 }
 
 // DNSSpec describes a DNS-query event payload.
@@ -221,6 +259,7 @@ func (s EventSpec) Build() (types.Event, error) {
 	if s.ProcArgs != "" {
 		e.ProcArgs = s.ProcArgs
 	}
+	e.ProcArgsTruncated = s.ProcArgsTruncated
 
 	switch strings.ToLower(s.Type) {
 	case "syscall":
@@ -277,6 +316,7 @@ func (s EventSpec) Build() (types.Event, error) {
 			if fe.FDPath == "" {
 				fe.FDPath = s.File.Filename
 			}
+			fe.FDPathTruncated = s.File.FDNameTruncated
 			fe.Flags = s.File.Flags
 			fe.Mode = s.File.Mode
 			switch strings.ToLower(s.File.Op) {
@@ -397,8 +437,69 @@ func (s EventSpec) Build() (types.Event, error) {
 		}
 		e.Kmod = km
 
+	case "gpu":
+		e.Type = types.EventGPU
+		g := &types.GPUEvent{}
+		if s.GPU != nil {
+			g.Size = s.GPU.Size
+			g.DevPtr = s.GPU.DevPtr
+			g.HostPtr = s.GPU.HostPtr
+			opNames := map[string]uint8{
+				"alloc": 0, "free": 1, "memcpy_htod": 2,
+				"memcpy_dtoh": 3, "memcpy_dtod": 4, "kernel_launch": 5,
+			}
+			if v, ok := opNames[strings.ToLower(s.GPU.Op)]; ok {
+				g.Op = v
+			}
+		}
+		e.GPU = g
+
+	case "cloud_audit":
+		e.Type = types.EventCloudAudit
+		if s.CloudAudit == nil {
+			return e, fmt.Errorf("event type 'cloud_audit' requires a 'cloud_audit:' block")
+		}
+		e.CloudAudit = &types.CloudAuditEvent{
+			Provider:    s.CloudAudit.Provider,
+			Service:     s.CloudAudit.Service,
+			Action:      s.CloudAudit.Action,
+			Principal:   s.CloudAudit.Principal,
+			ResourceARN: s.CloudAudit.ResourceARN,
+			SourceIP:    s.CloudAudit.SourceIP,
+			UserAgent:   s.CloudAudit.UserAgent,
+			ErrorCode:   s.CloudAudit.ErrorCode,
+			Region:      s.CloudAudit.Region,
+			EventID:     s.CloudAudit.EventID,
+		}
+
+	case "net_close":
+		e.Type = types.EventNetClose
+		nc := &types.NetCloseEvent{}
+		if s.NetClose != nil {
+			nc.Sport = s.NetClose.Sport
+			nc.Dport = s.NetClose.Dport
+			nc.Duration = time.Duration(s.NetClose.DurationMs) * time.Millisecond
+			switch strings.ToLower(s.NetClose.Family) {
+			case "ipv6":
+				nc.Family = types.AFInet6
+			default:
+				nc.Family = types.AFInet
+			}
+			if s.NetClose.SrcIP != "" {
+				if err := parseIP(s.NetClose.SrcIP, nc.Saddr[:], nc.Family); err != nil {
+					return e, fmt.Errorf("net_close src_ip: %w", err)
+				}
+			}
+			if s.NetClose.DstIP != "" {
+				if err := parseIP(s.NetClose.DstIP, nc.Daddr[:], nc.Family); err != nil {
+					return e, fmt.Errorf("net_close dst_ip: %w", err)
+				}
+			}
+		}
+		e.NetClose = nc
+
 	default:
-		return e, fmt.Errorf("unknown event type %q (valid: syscall, network, file, dns, privesc, tls, bpf_program, iouring, kmod)", s.Type)
+		return e, fmt.Errorf("unknown event type %q (valid: syscall, network, file, dns, privesc, tls, bpf_program, iouring, kmod, gpu, cloud_audit, net_close)", s.Type)
 	}
 	return e, nil
 }
