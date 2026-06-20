@@ -1,0 +1,97 @@
+[
+  {
+    "event_idx": 0,
+    "rule_id": "tls_ja3_cobalt_strike_default",
+    "severity": "critical"
+  },
+  {
+    "event_idx": 1,
+    "rule_id": "persistence_systemd_new_service",
+    "severity": "warning"
+  },
+  {
+    "event_idx": 2,
+    "rule_id": "persistence_cron_write",
+    "severity": "warning"
+  },
+  {
+    "event_idx": 3,
+    "rule_id": "recon_system_info",
+    "severity": "warning"
+  },
+  {
+    "event_idx": 4,
+    "rule_id": "exfil_large_http_post",
+    "severity": "warning"
+  },
+  {
+    "event_idx": 4,
+    "rule_id": "supply_chain_cicd_runner_network",
+    "severity": "warning"
+  },
+  {
+    "event_idx": 5,
+    "rule_id": "initial_web_shell_write",
+    "severity": "critical"
+  },
+  {
+    "event_idx": 5,
+    "rule_id": "webshell_php_in_web_root",
+    "severity": "critical"
+  },
+  {
+    "event_idx": 6,
+    "rule_id": "kmod_load_from_tmpfs",
+    "severity": "critical"
+  },
+  {
+    "event_idx": 6,
+    "rule_id": "kmod_unexpected_parent",
+    "severity": "critical"
+  },
+  {
+    "event_idx": 7,
+    "rule_id": "lateral_tool_transfer_wget",
+    "severity": "warning"
+  },
+  {
+    "event_idx": 8,
+    "rule_id": "evasion_system_binary_replace",
+    "severity": "critical"
+  },
+  {
+    "event_idx": 8,
+    "rule_id": "fim_binary_replaced_in_system_dir",
+    "severity": "critical"
+  },
+  {
+    "event_idx": 9,
+    "rule_id": "fim_library_replaced",
+    "severity": "critical"
+  },
+  {
+    "event_idx": 9,
+    "rule_id": "integrity_lib_replaced",
+    "severity": "critical"
+  },
+  {
+    "event_idx": 10,
+    "rule_id": "fim_passwd_write",
+    "severity": "critical"
+  },
+  {
+    "event_idx": 11,
+    "rule_id": "evasion_chmod_sensitive",
+    "severity": "warning"
+  },
+  {
+    "event_idx": 12,
+    "rule_id": "bpf_prog_load_unauthorized",
+    "severity": "critical"
+  },
+  {
+    "event_idx": 12,
+    "rule_id": "bpf_xdp_tc_unauthorized",
+    "severity": "critical"
+  }
+]
