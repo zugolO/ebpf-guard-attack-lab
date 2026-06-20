@@ -1,0 +1,36 @@
+---
+# Victim deployment: a normal nginx + shell, target of attack tests.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: victim
+  namespace: ebpf-guard-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      role: victim
+  template:
+    metadata:
+      labels:
+        role: victim
+    spec:
+      containers:
+        - name: victim
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+          securityContext:
+            allowPrivilegeEscalation: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: victim
+  namespace: ebpf-guard-test
+spec:
+  selector:
+    role: victim
+  ports:
+    - port: 80
+      targetPort: 80

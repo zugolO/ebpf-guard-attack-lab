@@ -1,0 +1,63 @@
+---
+# ebpf-guard DaemonSet for test cluster.
+# Mounts host /proc, /sys and the alert socket into the pod.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ebpf-guard
+  namespace: ebpf-guard-test
+spec:
+  selector:
+    matchLabels:
+      app: ebpf-guard
+  template:
+    metadata:
+      labels:
+        app: ebpf-guard
+    spec:
+      hostPID: true
+      hostNetwork: true
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: ebpf-guard
+          image: ${EBPF_GUARD_IMAGE:-ghcr.io/zugolo/ebpf-guard:latest}
+          securityContext:
+            privileged: true
+            capabilities:
+              add:
+                - SYS_ADMIN
+                - BPF
+                - PERFMON
+                - NET_ADMIN
+          volumeMounts:
+            - name: host-proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: host-sys
+              mountPath: /host/sys
+              readOnly: true
+            - name: alert-socket-dir
+              mountPath: /run/ebpf-guard
+          args:
+            - --alert-socket=/run/ebpf-guard/alerts.sock
+            - --alert-format=json
+            - --rules=/etc/ebpf-guard/rules
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+      volumes:
+        - name: host-proc
+          hostPath:
+            path: /proc
+        - name: host-sys
+          hostPath:
+            path: /sys
+        - name: alert-socket-dir
+          hostPath:
+            path: /run/ebpf-guard
+            type: DirectoryOrCreate

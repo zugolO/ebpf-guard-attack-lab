@@ -1,0 +1,22 @@
+---
+# Privileged attacker pod for container-escape and BPF-load tests.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: attacker-privileged
+  namespace: ebpf-guard-test
+  labels:
+    role: attacker-privileged
+spec:
+  restartPolicy: Never
+  hostPID: true
+  containers:
+    - name: attacker
+      image: python:3.11-slim
+      command: ["sleep", "3600"]
+      securityContext:
+        privileged: true
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "64Mi"

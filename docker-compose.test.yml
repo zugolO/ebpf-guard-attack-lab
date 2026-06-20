@@ -1,0 +1,57 @@
+# docker-compose.test.yml
+#
+# Single-machine integration test environment.
+# Runs ebpf-guard daemon + attack-lab on the same Linux host.
+# Requires: Docker with --privileged support, Linux 5.8+ kernel.
+#
+# Usage:
+#   EBPF_GUARD_IMAGE=ghcr.io/zugolo/ebpf-guard:latest \
+#   docker compose -f docker-compose.test.yml up --abort-on-container-exit
+
+services:
+
+  # ── ebpf-guard daemon ──────────────────────────────────────────────────────
+  ebpf-guard:
+    image: ${EBPF_GUARD_IMAGE:-ghcr.io/zugolo/ebpf-guard:latest}
+    privileged: true
+    pid: host
+    network_mode: host
+    volumes:
+      - /sys/fs/bpf:/sys/fs/bpf
+      - /proc:/host/proc:ro
+      - alert-socket:/run/ebpf-guard
+    command:
+      - --alert-socket=/run/ebpf-guard/alerts.sock
+      - --alert-format=json
+      - --rules=/etc/ebpf-guard/rules
+    healthcheck:
+      test: ["CMD", "test", "-S", "/run/ebpf-guard/alerts.sock"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  # ── attack lab (runs after daemon is healthy) ──────────────────────────────
+  attack-lab:
+    build:
+      context: .
+      dockerfile: hack/Dockerfile.test
+    depends_on:
+      ebpf-guard:
+        condition: service_healthy
+    pid: host          # same PID namespace — ebpf-guard sees our real PIDs
+    network_mode: host # same network — network attacks are visible
+    privileged: true   # needed for BPF/ptrace attack tests
+    volumes:
+      - alert-socket:/run/ebpf-guard:ro
+      - .:/workspace
+    working_dir: /workspace
+    environment:
+      EBPF_GUARD_ALERT_SOCKET: /run/ebpf-guard/alerts.sock
+      EBPF_GUARD_TIMEOUT: "5"
+    command: >
+      sh -c "pip3 install -q -r tests/integration/requirements.txt &&
+             cd tests/integration &&
+             python3 -m pytest . -v --timeout=30"
+
+volumes:
+  alert-socket:
