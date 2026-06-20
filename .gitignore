@@ -1,0 +1,15 @@
+# Go build artifacts
+/ebpf-guard
+*.o
+*.a
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+
+# Test output
+*.log
+*.sock

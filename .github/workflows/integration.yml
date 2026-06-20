@@ -1,0 +1,162 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # ── Layer 1: Go unit tests (rule engine in isolation, no kernel) ────────────
+  unit:
+    name: Unit Tests (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: Rule-engine unit tests
+        run: make test-unit
+
+  # ── Python syntax check (runs on any machine, no kernel required) ───────────
+  lint-python:
+    name: Python Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax-check integration attack modules
+        run: python3 -m py_compile tests/integration/conftest.py tests/integration/attacks/*.py
+
+      - name: Syntax-check integration test files
+        run: python3 -m py_compile tests/integration/test_*.py
+
+      - name: Syntax-check K8s test files
+        run: python3 -m py_compile tests/k8s/conftest.py tests/k8s/test_*.py
+
+  # ── Layer 2: Single-machine integration tests (real kernel events) ──────────
+  # Requires a self-hosted runner with:
+  #   - Linux 5.8+ kernel with BPF enabled
+  #   - CAP_BPF / CAP_SYS_ADMIN (run as root or with sufficient capabilities)
+  #   - ebpf-guard binary at the path configured in vars.EBPF_GUARD_BINARY
+  #
+  # Register a runner with these labels:
+  #   self-hosted, linux, ebpf-capable
+  #
+  # GPU integration tests (test_gpu_mining.py) additionally require:
+  #   - libcuda.so.1 (NVIDIA driver or mock stub — see hack/build-cuda-mock.sh)
+  #   - CUDA_MOCK_LIB env var pointing to the stub when no real GPU is present
+  integration:
+    name: Single-Machine Integration Tests
+    runs-on: [self-hosted, linux, ebpf-capable]
+    needs: [unit, lint-python]
+    environment: integration
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install VM dependencies
+        run: sudo bash hack/setup-test-vm.sh
+
+      - name: Install Python test dependencies
+        run: pip3 install -r tests/integration/requirements.txt
+
+      - name: Start ebpf-guard daemon
+        run: |
+          GUARD_BIN="${{ vars.EBPF_GUARD_BINARY || '/usr/local/bin/ebpf-guard' }}"
+          sudo mkdir -p /run/ebpf-guard
+          sudo "${GUARD_BIN}" \
+            --rules rules/ \
+            --alert-socket /run/ebpf-guard/alerts.sock \
+            --alert-format json &
+          echo "GUARD_PID=$!" >> "$GITHUB_ENV"
+          # Wait for socket to appear (up to 15 s)
+          timeout 15 bash -c 'until [ -S /run/ebpf-guard/alerts.sock ]; do sleep 0.5; done'
+          echo "ebpf-guard started (pid=${GUARD_PID})"
+
+      - name: Run integration tests
+        run: |
+          sudo -E python3 -m pytest tests/integration/ \
+            -v --timeout=30 -m integration -x --tb=short
+        env:
+          EBPF_GUARD_ALERT_SOCKET: /run/ebpf-guard/alerts.sock
+          EBPF_GUARD_TIMEOUT: "10"
+          # GPU tests skip automatically when CUDA_MOCK_LIB is unset
+          CUDA_MOCK_LIB: ${{ vars.CUDA_MOCK_LIB || '' }}
+
+      - name: Collect daemon logs on failure
+        if: failure()
+        run: sudo journalctl -u ebpf-guard --no-pager -n 200 || true
+
+      - name: Stop ebpf-guard daemon
+        if: always()
+        run: sudo kill "${GUARD_PID}" 2>/dev/null || sudo pkill -f ebpf-guard || true
+
+  # ── Layer 3: K8s integration tests (attacker pod + victim pod + DaemonSet) ──
+  # Requires a self-hosted runner with:
+  #   - kubectl configured with access to a test cluster
+  #   - KUBECONFIG secret pointing to the cluster credentials
+  #   - vars.EBPF_GUARD_IMAGE set to the container image to deploy
+  #
+  # Only runs on push to main to avoid burning cluster resources on every PR.
+  k8s:
+    name: K8s Integration Tests
+    runs-on: [self-hosted, linux, k8s-capable]
+    needs: [unit, lint-python]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: k8s-integration
+    env:
+      KUBECONFIG: ${{ secrets.KUBECONFIG }}
+      EBPF_GUARD_IMAGE: ${{ vars.EBPF_GUARD_IMAGE || 'ghcr.io/zugolo/ebpf-guard:latest' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python test dependencies
+        run: pip3 install -r tests/k8s/requirements.txt
+
+      - name: Create test namespace and deploy ebpf-guard DaemonSet
+        run: |
+          kubectl apply -f tests/k8s/manifests/namespace.yaml
+          # Substitute EBPF_GUARD_IMAGE into the DaemonSet manifest
+          EBPF_GUARD_IMAGE="${EBPF_GUARD_IMAGE}" \
+            envsubst < tests/k8s/manifests/ebpf-guard-daemonset.yaml \
+            | kubectl apply -f -
+          kubectl rollout status daemonset/ebpf-guard \
+            -n ebpf-guard-test --timeout=120s
+
+      - name: Deploy victim and attacker pods
+        run: |
+          kubectl apply -f tests/k8s/manifests/victim-deployment.yaml
+          kubectl apply -f tests/k8s/manifests/attacker-pod.yaml
+          kubectl apply -f tests/k8s/manifests/attacker-privileged-pod.yaml
+          kubectl wait pod -l app=victim \
+            -n ebpf-guard-test --for=condition=Ready --timeout=60s
+
+      - name: Run K8s integration tests
+        run: |
+          python3 -m pytest tests/k8s/ \
+            -v --timeout=60 -m k8s -x --tb=short
+        env:
+          EBPF_GUARD_DEPLOY: "0"   # DaemonSet already deployed above
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          echo "=== ebpf-guard DaemonSet logs ==="
+          kubectl logs -n ebpf-guard-test -l app=ebpf-guard --tail=200 || true
+          echo "=== Namespace events ==="
+          kubectl get events -n ebpf-guard-test \
+            --sort-by=.lastTimestamp || true
+
+      - name: Cleanup K8s resources
+        if: always()
+        run: kubectl delete namespace ebpf-guard-test --ignore-not-found

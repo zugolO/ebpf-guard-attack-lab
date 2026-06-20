@@ -1,0 +1,154 @@
+suite: gpu_mining
+rules_path: ../../rules/gpu-mining.yaml
+
+tests:
+  # ── gpu_large_alloc_unusual ──────────────────────────────────────────────────
+
+  - name: "unknown process allocating 512 MiB fires gpu_large_alloc_unusual"
+    rule_id: gpu_large_alloc_unusual
+    event:
+      type: gpu
+      comm: xmrig
+      gpu:
+        op: alloc
+        size: 536870912       # 512 MiB — above 500 MiB threshold
+    expect: alert
+    expect_severity: critical
+
+  - name: "python3 allocating 512 MiB fires gpu_large_alloc_unusual (not allowlisted)"
+    rule_id: gpu_large_alloc_unusual
+    event:
+      type: gpu
+      comm: python3
+      gpu:
+        op: alloc
+        size: 536870912
+    expect: alert
+    expect_severity: critical
+
+  - name: "small 10 MiB alloc from python3 does not fire large-alloc rule"
+    event:
+      type: gpu
+      comm: python3
+      gpu:
+        op: alloc
+        size: 10485760        # 10 MiB — well below threshold
+    expect: no_alert
+
+  - name: "large alloc from allowlisted nvidia-smi does not fire"
+    event:
+      type: gpu
+      comm: nvidia-smi
+      gpu:
+        op: alloc
+        size: 1073741824      # 1 GiB but process is allowlisted
+    expect: no_alert
+
+  - name: "large alloc from allowlisted pytorch-serve does not fire"
+    event:
+      type: gpu
+      comm: pytorch-serve
+      gpu:
+        op: alloc
+        size: 2147483648      # 2 GiB but process is allowlisted
+    expect: no_alert
+
+  - name: "alloc exactly at 500 MiB threshold does not fire (rule uses gt, not gte)"
+    event:
+      type: gpu
+      comm: python3
+      gpu:
+        op: alloc
+        size: 524288000       # exactly 500 MiB — not strictly greater
+    expect: no_alert
+
+  - name: "gpu free op does not fire large-alloc rule"
+    event:
+      type: gpu
+      comm: xmrig
+      gpu:
+        op: free
+        size: 536870912
+    expect: no_alert
+
+  # ── gpu_kernel_launch_unauthorized ──────────────────────────────────────────
+
+  - name: "unknown process launching GPU kernel fires gpu_kernel_launch_unauthorized"
+    rule_id: gpu_kernel_launch_unauthorized
+    event:
+      type: gpu
+      comm: xmrig
+      gpu:
+        op: kernel_launch
+    expect: alert
+    expect_severity: warning
+
+  - name: "python3 launching GPU kernel does not fire (allowlisted)"
+    event:
+      type: gpu
+      comm: python3
+      gpu:
+        op: kernel_launch
+    expect: no_alert
+
+  - name: "pytorch-serve launching GPU kernel does not fire (allowlisted)"
+    event:
+      type: gpu
+      comm: pytorch-serve
+      gpu:
+        op: kernel_launch
+    expect: no_alert
+
+  - name: "tensorflow-serv launching GPU kernel does not fire (allowlisted)"
+    event:
+      type: gpu
+      comm: tensorflow-serv
+      gpu:
+        op: kernel_launch
+    expect: no_alert
+
+  - name: "triton launching GPU kernel does not fire (allowlisted)"
+    event:
+      type: gpu
+      comm: triton
+      gpu:
+        op: kernel_launch
+    expect: no_alert
+
+  # ── gpu_mining_pattern ───────────────────────────────────────────────────────
+
+  - name: "unknown process memcpy_htod fires gpu_mining_pattern"
+    rule_id: gpu_mining_pattern
+    event:
+      type: gpu
+      comm: miner
+      gpu:
+        op: memcpy_htod
+        size: 104857600       # 100 MiB per transfer
+    expect: alert
+    expect_severity: warning
+
+  - name: "python3 memcpy_htod does not fire (allowlisted)"
+    event:
+      type: gpu
+      comm: python3
+      gpu:
+        op: memcpy_htod
+    expect: no_alert
+
+  - name: "memcpy_dtoh (device-to-host) from unknown process does not fire mining rule"
+    event:
+      type: gpu
+      comm: miner
+      gpu:
+        op: memcpy_dtoh
+        size: 104857600
+    expect: no_alert
+
+  - name: "gpu free from unknown process does not fire any rule"
+    event:
+      type: gpu
+      comm: xmrig
+      gpu:
+        op: free
+    expect: no_alert
