@@ -1,0 +1,126 @@
+corpus: nginx_request
+description: >
+  Nginx serving HTTP/HTTPS requests: accepting TCP connections, reading static
+  files, resolving upstream DNS names. File reads use op:read (not open) to
+  avoid the drift rule; web content reads are not .php/.jsp so no webshell rule
+  fires; ports 80/443 are not in exfiltration port lists.
+
+events:
+  # Incoming HTTP request — nginx not in suspicious comm lists for any rule
+  - type: network
+    comm: nginx
+    network:
+      src_ip: "203.0.113.42"
+      dst_ip: "10.0.0.5"
+      sport: 54321
+      dport: 80
+
+  # Incoming HTTPS request
+  - type: network
+    comm: nginx
+    network:
+      src_ip: "203.0.113.100"
+      dst_ip: "10.0.0.5"
+      sport: 54322
+      dport: 443
+
+  # Nginx reading static assets — read ops, not .php so no webshell rule
+  - type: file
+    comm: nginx
+    file:
+      filename: "/var/www/html/index.html"
+      op: read
+
+  - type: file
+    comm: nginx
+    file:
+      filename: "/var/www/html/styles/main.css"
+      op: read
+
+  - type: file
+    comm: nginx
+    file:
+      filename: "/var/www/html/js/app.js"
+      op: read
+
+  - type: file
+    comm: nginx
+    file:
+      filename: "/var/www/html/images/logo.png"
+      op: read
+
+  # Nginx reading its own config
+  - type: file
+    comm: nginx
+    file:
+      filename: "/etc/nginx/nginx.conf"
+      op: read
+
+  - type: file
+    comm: nginx
+    file:
+      filename: "/etc/nginx/sites-enabled/default"
+      op: read
+
+  # Nginx writing access log
+  - type: file
+    comm: nginx
+    file:
+      filename: "/var/log/nginx/access.log"
+      op: write
+
+  - type: file
+    comm: nginx
+    file:
+      filename: "/var/log/nginx/error.log"
+      op: write
+
+  # Nginx connecting to upstream backend — port 80 (supply_chain rule allows it)
+  - type: network
+    comm: nginx
+    network:
+      src_ip: "10.0.0.5"
+      dst_ip: "10.0.0.20"
+      sport: 49300
+      dport: 80
+
+  # DNS resolution for upstream service
+  - type: dns
+    comm: nginx
+    dns:
+      qname: "api.internal.example.com"
+      qtype: 1
+
+  - type: dns
+    comm: nginx
+    dns:
+      qname: "backend.svc.cluster.local"
+      qtype: 1
+
+  # Nginx reading SSL certificate
+  - type: file
+    comm: nginx
+    file:
+      filename: "/etc/ssl/certs/server.crt"
+      op: read
+
+  - type: file
+    comm: nginx
+    file:
+      filename: "/etc/ssl/private/server.key"
+      op: read
+
+  # Another batch of requests
+  - type: network
+    comm: nginx
+    network:
+      src_ip: "198.51.100.7"
+      dst_ip: "10.0.0.5"
+      sport: 54400
+      dport: 80
+
+  - type: file
+    comm: nginx
+    file:
+      filename: "/var/www/html/favicon.ico"
+      op: read

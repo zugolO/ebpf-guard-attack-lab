@@ -1,0 +1,108 @@
+corpus: systemd_service
+description: >
+  Systemd managing services at boot and during normal operation: loading
+  kernel modules via modprobe (trusted parent), reading service unit files,
+  privilege transitions for service processes. No kmod rules fire when
+  parent_comm is systemd/modprobe; privesc event_type has no rules.
+
+events:
+  # Kernel module loads with trusted parents — kmod_unexpected_parent won't fire
+  - type: kmod
+    comm: modprobe
+    parent_comm: systemd
+    kmod:
+      name: "ext4"
+
+  - type: kmod
+    comm: modprobe
+    parent_comm: udevadm
+    kmod:
+      name: "xfs"
+
+  - type: kmod
+    comm: insmod
+    parent_comm: modprobe
+    kmod:
+      name: "nfs"
+
+  - type: kmod
+    comm: modprobe
+    parent_comm: systemd
+    kmod:
+      name: "dm_crypt"
+
+  # NOT from tmpfs — kmod_load_from_tmpfs won't fire
+  - type: kmod
+    comm: modprobe
+    parent_comm: kmod
+    kmod:
+      name: "wireguard"
+      from_tmpfs: false
+
+  # Systemd reading its own unit files — read ops, not write
+  - type: file
+    comm: systemd
+    file:
+      filename: "/lib/systemd/system/nginx.service"
+      op: read
+
+  - type: file
+    comm: systemd
+    file:
+      filename: "/lib/systemd/system/sshd.service"
+      op: read
+
+  - type: file
+    comm: systemd
+    file:
+      filename: "/lib/systemd/system/cron.service"
+      op: read
+
+  - type: file
+    comm: systemd
+    file:
+      filename: "/etc/systemd/system.conf"
+      op: read
+
+  # Systemd reading journal data
+  - type: file
+    comm: journald
+    file:
+      filename: "/var/log/journal/abc123/system.journal"
+      op: write
+
+  # Systemd writing runtime state — not /etc/systemd/system/*.service so no persistence rule
+  - type: file
+    comm: systemd
+    file:
+      filename: "/run/systemd/private/tmp-db.lnk"
+      op: write
+
+  # Privilege transitions for service daemons — event_type 5 has no rules
+  - type: privesc
+    comm: sshd
+    privesc:
+      caps_gained: ["CAP_NET_BIND_SERVICE"]
+
+  - type: privesc
+    comm: nginx
+    privesc:
+      caps_gained: ["CAP_NET_BIND_SERVICE"]
+
+  - type: privesc
+    comm: postfix
+    privesc:
+      caps_gained: ["CAP_SETUID", "CAP_SETGID"]
+
+  # Systemd DNS resolution for network targets
+  - type: dns
+    comm: systemd-resolved
+    dns:
+      qname: "ntp.ubuntu.com"
+      qtype: 28
+
+  - type: dns
+    comm: systemd-resolved
+    dns:
+      qname: "archive.ubuntu.com"
+      qtype: 1

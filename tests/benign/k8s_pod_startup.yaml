@@ -1,0 +1,101 @@
+corpus: k8s_pod_startup
+description: >
+  Kubernetes pod startup sequence: kubelet orchestrating container launch,
+  cilium-agent loading BPF programs for network policy, cluster DNS resolution.
+  cilium-agent and systemd are allowlisted in BPF program rules.
+
+events:
+  # Cilium agent loading XDP program for network policy enforcement — allowlisted
+  - type: bpf_program
+    comm: cilium-agent
+    bpf_program:
+      cmd_nr: 5
+      prog_type: XDP
+      ret: 4
+
+  # Cilium loading TC (traffic control) program — allowlisted
+  - type: bpf_program
+    comm: cilium-agent
+    bpf_program:
+      cmd_nr: 5
+      prog_type: SCHED_CLS
+      ret: 5
+
+  # Cilium loading socket filter — allowlisted
+  - type: bpf_program
+    comm: cilium-agent
+    bpf_program:
+      cmd_nr: 5
+      prog_type: SOCKET_FILTER
+      ret: 6
+
+  # Cluster DNS queries — no DNS rules exist
+  - type: dns
+    comm: kubelet
+    dns:
+      qname: "kubernetes.default.svc.cluster.local"
+      qtype: 1
+
+  - type: dns
+    comm: coredns
+    dns:
+      qname: "kube-dns.kube-system.svc.cluster.local"
+      qtype: 1
+
+  - type: dns
+    comm: coredns
+    dns:
+      qname: "metrics-server.kube-system.svc.cluster.local"
+      qtype: 1
+
+  # Kubelet connecting to API server — use port 443 (supply_chain rule allows it)
+  - type: network
+    comm: kubelet
+    network:
+      src_ip: "10.244.0.1"
+      dst_ip: "10.96.0.1"
+      sport: 52341
+      dport: 443
+
+  # Container runtime (containerd) connecting to image registry
+  - type: network
+    comm: containerd
+    network:
+      src_ip: "10.0.0.10"
+      dst_ip: "192.168.65.1"
+      sport: 49200
+      dport: 443
+
+  # Kubelet reading pod configuration
+  - type: file
+    comm: kubelet
+    file:
+      filename: "/var/lib/kubelet/config.yaml"
+      op: read
+
+  - type: file
+    comm: kubelet
+    file:
+      filename: "/var/lib/kubelet/pki/kubelet.crt"
+      op: read
+
+  # Container logs written to /var/log/containers
+  - type: file
+    comm: containerd
+    file:
+      filename: "/var/log/containers/nginx-pod_default_nginx-abc123.log"
+      op: write
+
+  # CoreDNS reading config
+  - type: file
+    comm: coredns
+    file:
+      filename: "/etc/coredns/Corefile"
+      op: read
+
+  # Kube-proxy reading iptables rules (harmless file read)
+  - type: file
+    comm: kube-proxy
+    file:
+      filename: "/var/lib/kube-proxy/config.conf"
+      op: read

@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -89,6 +90,23 @@ type ThrottleTest struct {
 	ExpectRemaining Expectation `yaml:"expect_remaining,omitempty"`
 }
 
+// MutantSpec describes one evasion variant derived from a TestCase.
+// The runner applies Patch to the base event and asserts Expect on the result.
+// When KnownBypass is true, a mismatch is logged as a warning rather than
+// a test failure, allowing known detection gaps to be explicitly documented.
+type MutantSpec struct {
+	// Description is a human-readable label for this evasion variant.
+	Description string `yaml:"description"`
+	// Patch maps EventSpec field paths (e.g. "file.filename", "comm") to
+	// replacement string values applied on top of the base event.
+	Patch map[string]string `yaml:"patch"`
+	// Expect is the required outcome for this mutant: "alert", "no_alert", or "drop".
+	Expect Expectation `yaml:"expect"`
+	// KnownBypass marks this variant as an accepted detection gap.
+	// When true, outcome mismatches are logged as warnings instead of failures.
+	KnownBypass bool `yaml:"known_bypass,omitempty"`
+}
+
 // TestCase is a single unit test that exercises one synthetic event.
 type TestCase struct {
 	// Name is a human-readable description of the test case.
@@ -107,6 +125,9 @@ type TestCase struct {
 	// ExpectRuleID, when non-empty, asserts that this specific rule ID must
 	// have fired (overrides RuleID for assertion purposes).
 	ExpectRuleID string `yaml:"expect_rule_id,omitempty"`
+	// Mutants is an optional list of evasion variants of this test case.
+	// Each mutant patches one or more EventSpec fields and asserts the outcome.
+	Mutants []MutantSpec `yaml:"mutants,omitempty"`
 }
 
 // effectiveExpectRuleID returns the rule ID that the test asserts must fire.
@@ -603,6 +624,85 @@ func capBit(name string) (uint, bool) {
 // ─────────────────────────────────────────────────────────────────────────────
 // YAML loader
 // ─────────────────────────────────────────────────────────────────────────────
+
+// applyMutantPatch applies a patch map (field-path → value) to a copy of spec
+// and returns the patched copy. Supported field paths:
+//
+//	comm, proc_args
+//	file.filename, file.fd_name, file.op
+//	network.dst_ip, network.src_ip, network.dport, network.sport
+//	dns.qname
+//	syscall.nr
+func applyMutantPatch(spec EventSpec, patch map[string]string) (EventSpec, error) {
+	for path, val := range patch {
+		switch path {
+		case "comm":
+			spec.Comm = val
+		case "proc_args":
+			spec.ProcArgs = val
+		case "file.filename":
+			if spec.File == nil {
+				spec.File = &FileSpec{}
+			}
+			spec.File.Filename = val
+		case "file.fd_name":
+			if spec.File == nil {
+				spec.File = &FileSpec{}
+			}
+			spec.File.FDName = val
+		case "file.op":
+			if spec.File == nil {
+				spec.File = &FileSpec{}
+			}
+			spec.File.Op = val
+		case "network.dst_ip":
+			if spec.Network == nil {
+				spec.Network = &NetworkSpec{}
+			}
+			spec.Network.DstIP = val
+		case "network.src_ip":
+			if spec.Network == nil {
+				spec.Network = &NetworkSpec{}
+			}
+			spec.Network.SrcIP = val
+		case "network.dport":
+			port, err := strconv.ParseUint(val, 10, 16)
+			if err != nil {
+				return spec, fmt.Errorf("mutant patch %q: parse port %q: %w", path, val, err)
+			}
+			if spec.Network == nil {
+				spec.Network = &NetworkSpec{}
+			}
+			spec.Network.Dport = uint16(port)
+		case "network.sport":
+			port, err := strconv.ParseUint(val, 10, 16)
+			if err != nil {
+				return spec, fmt.Errorf("mutant patch %q: parse port %q: %w", path, val, err)
+			}
+			if spec.Network == nil {
+				spec.Network = &NetworkSpec{}
+			}
+			spec.Network.Sport = uint16(port)
+		case "dns.qname":
+			if spec.DNS == nil {
+				spec.DNS = &DNSSpec{}
+			}
+			spec.DNS.QName = val
+		case "syscall.nr":
+			nr, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				return spec, fmt.Errorf("mutant patch %q: parse nr %q: %w", path, val, err)
+			}
+			if spec.Syscall == nil {
+				spec.Syscall = &SyscallSpec{}
+			}
+			spec.Syscall.NR = nr
+		default:
+			return spec, fmt.Errorf("mutant patch: unsupported field path %q (supported: comm, proc_args, file.filename, file.fd_name, file.op, network.dst_ip, network.src_ip, network.dport, network.sport, dns.qname, syscall.nr)", path)
+		}
+	}
+	return spec, nil
+}
 
 // LoadSuite parses a *_test.yaml file and returns the Suite.
 // path is used to resolve relative RulesPath values.

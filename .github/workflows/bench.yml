@@ -1,0 +1,86 @@
+name: Engine Benchmarks
+
+on:
+  push:
+    branches: [main, "claude/**"]
+    paths:
+      - "internal/correlator/**"
+      - "tests/bench/**"
+      - ".github/workflows/bench.yml"
+  pull_request:
+    paths:
+      - "internal/correlator/**"
+      - "tests/bench/**"
+
+jobs:
+  bench:
+    name: Run benchmarks and assert alloc budget
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run benchmarks
+        run: |
+          go test -bench=. -benchmem -count=5 ./tests/bench/ | tee bench.txt
+
+      - name: Assert BenchmarkEvaluate_NoMatch is ≤1 alloc/op
+        run: |
+          # Each line looks like: BenchmarkEvaluate_NoMatch-8   12345678   95.2 ns/op   0 B/op   0 allocs/op
+          # The last field before "allocs/op" is the allocation count.
+          allocs=$(grep "BenchmarkEvaluate_NoMatch" bench.txt \
+            | awk '{for(i=1;i<=NF;i++) if($i=="allocs/op") print $(i-1)}' \
+            | sort -n | tail -1)
+          echo "BenchmarkEvaluate_NoMatch max allocs/op: ${allocs}"
+          if [ -z "${allocs}" ]; then
+            echo "ERROR: BenchmarkEvaluate_NoMatch not found in bench output" >&2
+            exit 1
+          fi
+          if [ "${allocs}" -gt 1 ]; then
+            echo "ERROR: BenchmarkEvaluate_NoMatch must be ≤1 allocs/op, got ${allocs}" >&2
+            exit 1
+          fi
+
+      - name: Assert BenchmarkEvaluateInto_NoMatch is 0 allocs/op
+        run: |
+          # EvaluateInto is the true zero-alloc hot path.
+          allocs=$(grep "BenchmarkEvaluateInto_NoMatch" bench.txt \
+            | awk '{for(i=1;i<=NF;i++) if($i=="allocs/op") print $(i-1)}' \
+            | sort -n | tail -1)
+          echo "BenchmarkEvaluateInto_NoMatch max allocs/op: ${allocs}"
+          if [ -z "${allocs}" ]; then
+            echo "ERROR: BenchmarkEvaluateInto_NoMatch not found in bench output" >&2
+            exit 1
+          fi
+          if [ "${allocs}" -ne 0 ]; then
+            echo "ERROR: BenchmarkEvaluateInto_NoMatch must be 0 allocs/op, got ${allocs}" >&2
+            exit 1
+          fi
+
+      - name: Assert BenchmarkEvaluate_SingleMatch is ≤5 allocs/op
+        run: |
+          allocs=$(grep "BenchmarkEvaluate_SingleMatch" bench.txt \
+            | awk '{for(i=1;i<=NF;i++) if($i=="allocs/op") print $(i-1)}' \
+            | sort -n | tail -1)
+          echo "BenchmarkEvaluate_SingleMatch max allocs/op: ${allocs}"
+          if [ -z "${allocs}" ]; then
+            echo "ERROR: BenchmarkEvaluate_SingleMatch not found in bench output" >&2
+            exit 1
+          fi
+          if [ "${allocs}" -gt 5 ]; then
+            echo "ERROR: BenchmarkEvaluate_SingleMatch must be ≤5 allocs/op, got ${allocs}" >&2
+            exit 1
+          fi
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results
+          path: bench.txt
+          retention-days: 30
