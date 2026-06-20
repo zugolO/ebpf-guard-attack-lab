@@ -1,0 +1,41 @@
+rules:
+  - id: bpf_prog_load_unauthorized
+    name: "Unauthorized BPF Program Load"
+    description: "An unauthorized process successfully loaded a BPF program"
+    event_type: 7
+    condition_group:
+      operator: and
+      conditions:
+        - field: cmd_nr
+          op: equals
+          values: ["5"]
+        - field: ret
+          op: gte
+          values: ["0"]
+        - field: comm
+          op: not_in
+          values: [ebpf-guard, cilium-agent, systemd, bpfd, bcc, libbpf]
+    severity: critical
+    action: alert
+
+  - id: bpf_xdp_tc_unauthorized
+    name: "Unauthorized XDP/TC BPF Program Load"
+    description: "An unauthorized process loaded an XDP or TC BPF program for traffic manipulation"
+    event_type: 7
+    condition_group:
+      operator: and
+      conditions:
+        - field: cmd_nr
+          op: equals
+          values: ["5"]
+        - field: ret
+          op: gte
+          values: ["0"]
+        - field: prog_type
+          op: in
+          values: [XDP, SCHED_CLS, SCHED_ACT]
+        - field: comm
+          op: not_in
+          values: [ebpf-guard, cilium-agent, systemd]
+    severity: critical
+    action: alert

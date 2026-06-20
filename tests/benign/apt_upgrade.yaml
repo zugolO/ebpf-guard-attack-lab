@@ -1,0 +1,132 @@
+corpus: apt_upgrade
+description: >
+  Package manager operations: apt-get upgrade touching /var/lib/dpkg,
+  /var/cache/apt, /etc/apt and downloading packages over the network.
+  dpkg and apt-get are allowlisted in persistence and cron rules.
+
+events:
+  # dpkg reading its own database — safe read ops, no write rules apply
+  - type: file
+    comm: dpkg
+    file:
+      filename: "/var/lib/dpkg/status"
+      op: read
+
+  - type: file
+    comm: dpkg
+    file:
+      filename: "/var/lib/dpkg/available"
+      op: read
+
+  - type: file
+    comm: dpkg
+    file:
+      filename: "/var/lib/dpkg/lock"
+      op: write
+
+  # dpkg writing package metadata — allowlisted for persistence rules
+  - type: file
+    comm: dpkg
+    file:
+      filename: "/var/lib/dpkg/info/nginx.list"
+      op: write
+
+  - type: file
+    comm: dpkg
+    file:
+      filename: "/var/lib/dpkg/info/nginx.md5sums"
+      op: write
+
+  # apt-get reading sources and caches — read ops, no rules fire
+  - type: file
+    comm: apt-get
+    file:
+      filename: "/etc/apt/sources.list"
+      op: read
+
+  - type: file
+    comm: apt-get
+    file:
+      filename: "/etc/apt/apt.conf.d/99local"
+      op: read
+
+  - type: file
+    comm: apt-get
+    file:
+      filename: "/var/cache/apt/pkgcache.bin"
+      op: read
+
+  # apt-get writing downloaded package lists
+  - type: file
+    comm: apt-get
+    file:
+      filename: "/var/lib/apt/lists/deb.debian.org_debian_dists_bookworm_Release"
+      op: write
+
+  - type: file
+    comm: apt-get
+    file:
+      filename: "/var/lib/apt/lists/security.debian.org_debian-security_dists_bookworm-security_Release"
+      op: write
+
+  - type: file
+    comm: apt-get
+    file:
+      filename: "/var/cache/apt/archives/nginx_1.24.0-2_amd64.deb"
+      op: write
+
+  # dpkg writing config files during package installation — allowlisted
+  - type: file
+    comm: dpkg
+    file:
+      filename: "/etc/nginx/nginx.conf"
+      op: write
+
+  - type: file
+    comm: dpkg
+    file:
+      filename: "/etc/default/nginx"
+      op: write
+
+  # DNS resolution for Debian repos — no DNS rules exist
+  - type: dns
+    comm: apt-get
+    dns:
+      qname: "deb.debian.org"
+      qtype: 1
+
+  - type: dns
+    comm: apt-get
+    dns:
+      qname: "security.debian.org"
+      qtype: 1
+
+  # Package download over HTTPS — apt-get not in suspicious comm lists
+  - type: network
+    comm: apt-get
+    network:
+      src_ip: "10.0.0.5"
+      dst_ip: "151.101.0.5"
+      sport: 49152
+      dport: 443
+
+  - type: network
+    comm: apt-get
+    network:
+      src_ip: "10.0.0.5"
+      dst_ip: "151.101.0.5"
+      sport: 49153
+      dport: 80
+
+  # dpkg reading installed package's conffiles list
+  - type: file
+    comm: dpkg
+    file:
+      filename: "/var/lib/dpkg/info/openssh-server.conffiles"
+      op: read
+
+  - type: file
+    comm: dpkg
+    file:
+      filename: "/var/cache/apt/archives/partial/openssh-server_9.3p1_amd64.deb"
+      op: write

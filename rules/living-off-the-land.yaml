@@ -1,0 +1,86 @@
+rules:
+  - id: lolbin_socat_shell
+    name: "Socat Used to Spawn Shell"
+    description: "socat was used with EXEC: to spawn a shell"
+    event_type: 1
+    condition_group:
+      operator: and
+      conditions:
+        - field: nr
+          op: equals
+          values: ["59"]
+        - field: comm
+          op: equals
+          values: [socat]
+        - field: proc.args
+          op: contains
+          values: ["EXEC:"]
+    severity: critical
+    action: alert
+
+  - id: lolbin_strace_exec
+    name: "strace Accessed"
+    description: "A process opened the strace binary, potentially for code injection or evasion"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: equals
+          values: [open]
+        - field: filename
+          op: in
+          values: ["/usr/bin/strace", "/bin/strace"]
+    severity: warning
+    action: alert
+
+  - id: lolbin_gdb_exec
+    name: "GDB Used for Code Execution"
+    description: "gdb was used with call system() to execute arbitrary commands"
+    event_type: 1
+    condition_group:
+      operator: and
+      conditions:
+        - field: nr
+          op: equals
+          values: ["59"]
+        - field: comm
+          op: equals
+          values: [gdb]
+        - field: proc.args
+          op: contains
+          values: ["call system("]
+    severity: warning
+    action: alert
+
+  - id: lolbin_tclsh_exec
+    name: "Tcl/Expect Interpreter Executed"
+    description: "A Tcl or Expect interpreter was executed, commonly used for LOLbin attacks"
+    event_type: 1
+    condition_group:
+      operator: and
+      conditions:
+        - field: nr
+          op: equals
+          values: ["59"]
+        - field: comm
+          op: in
+          values: [tclsh, expect]
+    severity: warning
+    action: alert
+
+  - id: lolbin_busybox_shell
+    name: "BusyBox Shell Accessed"
+    description: "A process accessed the BusyBox binary, which provides a built-in shell"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: equals
+          values: [open]
+        - field: filename
+          op: in
+          values: ["/bin/busybox", "/usr/bin/busybox"]
+    severity: warning
+    action: alert

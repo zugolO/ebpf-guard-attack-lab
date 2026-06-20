@@ -1,0 +1,157 @@
+corpus: ci_build
+description: >
+  CI/CD build pipeline: compiler and linker activity, test runner, package
+  registry DNS, artifact writes to /tmp. Syscall numbers chosen to avoid
+  all detection rules (nr=59 execve with non-suspicious comms, nr=3 close,
+  nr=0 read, nr=1 write). make/cmake network excluded — initial_package_postinstall_network
+  fires on those. gcc and pytest are not in any suspicious comm list.
+
+events:
+  # gcc compilation — nr=59 execve but comm=gcc is not in any suspicious comm list
+  - type: syscall
+    comm: gcc
+    syscall:
+      nr: 59
+      ret: 0
+
+  - type: syscall
+    comm: ld
+    syscall:
+      nr: 59
+      ret: 0
+
+  # Close syscalls — nr=3 has no rules
+  - type: syscall
+    comm: gcc
+    syscall:
+      nr: 3
+      ret: 0
+
+  - type: syscall
+    comm: pytest
+    syscall:
+      nr: 3
+      ret: 0
+
+  # Read/write syscalls — nr=0,1 have no rules
+  - type: syscall
+    comm: cargo
+    syscall:
+      nr: 0
+      ret: 512
+
+  - type: syscall
+    comm: cargo
+    syscall:
+      nr: 1
+      ret: 512
+
+  # Artifact writes to /tmp — not a sensitive path for any rule
+  - type: file
+    comm: gcc
+    file:
+      filename: "/tmp/ccXYZ123.s"
+      op: write
+
+  - type: file
+    comm: gcc
+    file:
+      filename: "/tmp/ccXYZ123.o"
+      op: write
+
+  - type: file
+    comm: ld
+    file:
+      filename: "/tmp/build/myapp"
+      op: write
+
+  # Test runner writing output
+  - type: file
+    comm: pytest
+    file:
+      filename: "/tmp/pytest-of-runner/pytest-0/test_session.log"
+      op: write
+
+  # Source code reads — not sensitive paths
+  - type: file
+    comm: gcc
+    file:
+      filename: "/home/runner/work/repo/src/main.c"
+      op: read
+
+  - type: file
+    comm: rustc
+    file:
+      filename: "/home/runner/work/repo/src/lib.rs"
+      op: read
+
+  # Package registry DNS — benign domains, no DNS rules exist
+  - type: dns
+    comm: cargo
+    dns:
+      qname: "crates.io"
+      qtype: 1
+
+  - type: dns
+    comm: npm
+    dns:
+      qname: "registry.npmjs.org"
+      qtype: 1
+
+  - type: dns
+    comm: pip
+    dns:
+      qname: "pypi.org"
+      qtype: 1
+
+  - type: dns
+    comm: go
+    dns:
+      qname: "proxy.golang.org"
+      qtype: 1
+
+  # Package download — npm/pip/cargo/go not in any suspicious comm list
+  - type: network
+    comm: cargo
+    network:
+      src_ip: "10.0.0.20"
+      dst_ip: "13.35.78.105"
+      sport: 55000
+      dport: 443
+
+  - type: network
+    comm: pip
+    network:
+      src_ip: "10.0.0.20"
+      dst_ip: "151.101.192.223"
+      sport: 55001
+      dport: 443
+
+  - type: network
+    comm: npm
+    network:
+      src_ip: "10.0.0.20"
+      dst_ip: "104.16.0.35"
+      sport: 55002
+      dport: 443
+
+  # Test coverage report write
+  - type: file
+    comm: pytest
+    file:
+      filename: "/home/runner/work/repo/coverage.xml"
+      op: write
+
+  # Go test runner
+  - type: syscall
+    comm: go
+    syscall:
+      nr: 59
+      ret: 0
+
+  # rustc syscalls
+  - type: syscall
+    comm: rustc
+    syscall:
+      nr: 0
+      ret: 4096

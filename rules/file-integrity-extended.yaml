@@ -1,0 +1,51 @@
+rules:
+  - id: fim_binary_replaced_in_system_dir
+    name: "System Binary Replacement Detected"
+    description: "A file was written directly to a system binary directory"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: in
+          values: [write, create]
+        - field: filename
+          op: regex
+          values: ["^(/usr/bin|/bin|/usr/sbin)/[^/]+$"]
+    severity: critical
+    action: alert
+
+  - id: fim_library_replaced
+    name: "System Library Replaced"
+    description: "A shared library was written in a system library directory"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: in
+          values: [write, create]
+        - field: filename
+          op: prefix
+          values: ["/lib/", "/usr/lib/", "/lib64/"]
+        - field: filename
+          op: contains
+          values: [".so"]
+    severity: critical
+    action: alert
+
+  - id: fim_passwd_write
+    name: "Password File Modified"
+    description: "The /etc/passwd file was written"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: in
+          values: [write, create]
+        - field: filename
+          op: prefix
+          values: ["/etc/passwd"]
+    severity: critical
+    action: alert

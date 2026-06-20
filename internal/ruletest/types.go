@@ -9,7 +9,9 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -33,8 +35,76 @@ type Suite struct {
 	// file or directory to load before running the tests.
 	// When empty the caller must supply rules via the Runner.RulesDir option.
 	RulesPath string `yaml:"rules_path,omitempty"`
-	// Tests is the list of test cases in this suite.
+	// Tests is the list of single-event test cases in this suite.
 	Tests []TestCase `yaml:"tests"`
+	// Chains is an optional list of multi-event chain tests.
+	Chains []ChainTest `yaml:"chains,omitempty"`
+	// ThrottleTests is an optional list of sampling/throttle regression tests.
+	ThrottleTests []ThrottleTest `yaml:"throttle_tests,omitempty"`
+}
+
+// ChainStep is one event in a multi-event chain test.
+type ChainStep struct {
+	// Name optionally labels this step for diagnostic output.
+	Name string `yaml:"name,omitempty"`
+	// RuleID is the rule expected to fire for this step (used with all_fire).
+	RuleID string `yaml:"rule_id,omitempty"`
+	// Event is the synthetic event to inject into the rule engine.
+	Event EventSpec `yaml:"event"`
+}
+
+// ChainTest exercises an ordered sequence of events and asserts on the
+// aggregate alert outcome across the whole sequence.
+type ChainTest struct {
+	// Name is a human-readable description of the chain test.
+	Name string `yaml:"name"`
+	// Chain is the ordered list of events to inject.
+	Chain []ChainStep `yaml:"chain"`
+	// ExpectChain is the aggregate assertion:
+	//   all_fire  – every step must produce at least one alert; when a step
+	//               carries a rule_id, that specific rule must be among those fired.
+	//   any_fire  – at least one step must produce at least one alert.
+	//   none_fire – no step may produce any alert.
+	ExpectChain string `yaml:"expect_chain"`
+}
+
+// ThrottleTest exercises a single event injected Repeat times and asserts that
+// the first ExpectFirstN injections each produce an alert and the remainder
+// produce ExpectRemaining. It is useful for regression-testing rules whose
+// sample_rate is 1.0 (always fires) as well as future per-rule throttle logic.
+type ThrottleTest struct {
+	// Name is a human-readable description of the throttle test.
+	Name string `yaml:"name"`
+	// RuleID is the rule that must appear in each alert for the first
+	// ExpectFirstN events (optional; when empty, any alert satisfies the check).
+	RuleID string `yaml:"rule_id,omitempty"`
+	// Event is the event to inject Repeat times.
+	Event EventSpec `yaml:"event"`
+	// Repeat is the total number of times to inject Event.
+	Repeat int `yaml:"repeat"`
+	// ExpectFirstN is the number of leading injections that must each produce
+	// an alert. Must be ≤ Repeat.
+	ExpectFirstN int `yaml:"expect_first_n"`
+	// ExpectRemaining is the expected outcome for the Repeat-ExpectFirstN events
+	// after the first ExpectFirstN. Defaults to "no_alert" when omitted.
+	ExpectRemaining Expectation `yaml:"expect_remaining,omitempty"`
+}
+
+// MutantSpec describes one evasion variant derived from a TestCase.
+// The runner applies Patch to the base event and asserts Expect on the result.
+// When KnownBypass is true, a mismatch is logged as a warning rather than
+// a test failure, allowing known detection gaps to be explicitly documented.
+type MutantSpec struct {
+	// Description is a human-readable label for this evasion variant.
+	Description string `yaml:"description"`
+	// Patch maps EventSpec field paths (e.g. "file.filename", "comm") to
+	// replacement string values applied on top of the base event.
+	Patch map[string]string `yaml:"patch"`
+	// Expect is the required outcome for this mutant: "alert", "no_alert", or "drop".
+	Expect Expectation `yaml:"expect"`
+	// KnownBypass marks this variant as an accepted detection gap.
+	// When true, outcome mismatches are logged as warnings instead of failures.
+	KnownBypass bool `yaml:"known_bypass,omitempty"`
 }
 
 // TestCase is a single unit test that exercises one synthetic event.
@@ -55,6 +125,9 @@ type TestCase struct {
 	// ExpectRuleID, when non-empty, asserts that this specific rule ID must
 	// have fired (overrides RuleID for assertion purposes).
 	ExpectRuleID string `yaml:"expect_rule_id,omitempty"`
+	// Mutants is an optional list of evasion variants of this test case.
+	// Each mutant patches one or more EventSpec fields and asserts the outcome.
+	Mutants []MutantSpec `yaml:"mutants,omitempty"`
 }
 
 // effectiveExpectRuleID returns the rule ID that the test asserts must fire.
@@ -72,22 +145,26 @@ func (tc TestCase) effectiveExpectRuleID() string {
 
 // EventSpec describes a synthetic event in YAML.
 type EventSpec struct {
-	Type       string          `yaml:"type"`
-	PID        uint32          `yaml:"pid,omitempty"`
-	TGID       uint32          `yaml:"tgid,omitempty"`
-	UID        uint32          `yaml:"uid,omitempty"`
-	Comm       string          `yaml:"comm,omitempty"`
-	ProcArgs   string          `yaml:"proc_args,omitempty"`
-	ParentComm string          `yaml:"parent_comm,omitempty"`
-	Syscall    *SyscallSpec    `yaml:"syscall,omitempty"`
-	Network    *NetworkSpec    `yaml:"network,omitempty"`
-	File       *FileSpec       `yaml:"file,omitempty"`
-	DNS        *DNSSpec        `yaml:"dns,omitempty"`
-	Privesc    *PrivescSpec    `yaml:"privesc,omitempty"`
-	TLS        *TLSSpec        `yaml:"tls,omitempty"`
-	BPFProgram *BPFProgramSpec `yaml:"bpf_program,omitempty"`
-	IOUring    *IOUringSpec    `yaml:"iouring,omitempty"`
-	Kmod       *KmodSpec       `yaml:"kmod,omitempty"`
+	Type              string          `yaml:"type"`
+	PID               uint32          `yaml:"pid,omitempty"`
+	TGID              uint32          `yaml:"tgid,omitempty"`
+	UID               uint32          `yaml:"uid,omitempty"`
+	Comm              string          `yaml:"comm,omitempty"`
+	ProcArgs          string          `yaml:"proc_args,omitempty"`
+	ProcArgsTruncated bool            `yaml:"proc_args_truncated,omitempty"`
+	ParentComm        string          `yaml:"parent_comm,omitempty"`
+	Syscall           *SyscallSpec    `yaml:"syscall,omitempty"`
+	Network           *NetworkSpec    `yaml:"network,omitempty"`
+	File              *FileSpec       `yaml:"file,omitempty"`
+	DNS               *DNSSpec        `yaml:"dns,omitempty"`
+	Privesc           *PrivescSpec    `yaml:"privesc,omitempty"`
+	TLS               *TLSSpec        `yaml:"tls,omitempty"`
+	BPFProgram        *BPFProgramSpec `yaml:"bpf_program,omitempty"`
+	IOUring           *IOUringSpec    `yaml:"iouring,omitempty"`
+	Kmod              *KmodSpec       `yaml:"kmod,omitempty"`
+	GPU               *GPUSpec        `yaml:"gpu,omitempty"`
+	CloudAudit        *CloudAuditSpec `yaml:"cloud_audit,omitempty"`
+	NetClose          *NetCloseSpec   `yaml:"net_close,omitempty"`
 }
 
 // TLSSpec describes a TLS plaintext inspection event payload.
@@ -170,11 +247,44 @@ type NetworkSpec struct {
 
 // FileSpec describes a file-access event payload.
 type FileSpec struct {
-	Filename string `yaml:"filename,omitempty"`
-	FDName   string `yaml:"fd_name,omitempty"` // fd-enriched path (issue #47)
-	Flags    int32  `yaml:"flags,omitempty"`
-	Mode     uint32 `yaml:"mode,omitempty"`
-	Op       string `yaml:"op,omitempty"` // "open", "read", "write"
+	Filename        string `yaml:"filename,omitempty"`
+	FDName          string `yaml:"fd_name,omitempty"`          // fd-enriched path
+	FDNameTruncated bool   `yaml:"fd_name_truncated,omitempty"` // sets FDPathTruncated
+	Flags           int32  `yaml:"flags,omitempty"`
+	Mode            uint32 `yaml:"mode,omitempty"`
+	Op              string `yaml:"op,omitempty"` // "open", "read", "write"
+}
+
+// GPUSpec describes a GPU operation event (CUDA/ROCm intercept).
+type GPUSpec struct {
+	Op      string `yaml:"op"`                 // "alloc", "free", "memcpy_htod", etc.
+	Size    uint64 `yaml:"size,omitempty"`
+	DevPtr  uint64 `yaml:"dev_ptr,omitempty"`
+	HostPtr uint64 `yaml:"host_ptr,omitempty"`
+}
+
+// CloudAuditSpec describes a cloud-provider audit log event.
+type CloudAuditSpec struct {
+	Provider    string `yaml:"provider"`
+	Service     string `yaml:"service"`
+	Action      string `yaml:"action"`
+	Principal   string `yaml:"principal,omitempty"`
+	ResourceARN string `yaml:"resource,omitempty"`
+	SourceIP    string `yaml:"source_ip,omitempty"`
+	UserAgent   string `yaml:"user_agent,omitempty"`
+	ErrorCode   string `yaml:"error_code,omitempty"`
+	Region      string `yaml:"region,omitempty"`
+	EventID     string `yaml:"event_id,omitempty"`
+}
+
+// NetCloseSpec describes a TCP connection-close event.
+type NetCloseSpec struct {
+	SrcIP      string `yaml:"src_ip,omitempty"`
+	DstIP      string `yaml:"dst_ip,omitempty"`
+	Sport      uint16 `yaml:"sport,omitempty"`
+	Dport      uint16 `yaml:"dport,omitempty"`
+	Family     string `yaml:"family,omitempty"` // "ipv4" (default) or "ipv6"
+	DurationMs int64  `yaml:"duration_ms,omitempty"`
 }
 
 // DNSSpec describes a DNS-query event payload.
@@ -221,6 +331,7 @@ func (s EventSpec) Build() (types.Event, error) {
 	if s.ProcArgs != "" {
 		e.ProcArgs = s.ProcArgs
 	}
+	e.ProcArgsTruncated = s.ProcArgsTruncated
 
 	switch strings.ToLower(s.Type) {
 	case "syscall":
@@ -277,6 +388,7 @@ func (s EventSpec) Build() (types.Event, error) {
 			if fe.FDPath == "" {
 				fe.FDPath = s.File.Filename
 			}
+			fe.FDPathTruncated = s.File.FDNameTruncated
 			fe.Flags = s.File.Flags
 			fe.Mode = s.File.Mode
 			switch strings.ToLower(s.File.Op) {
@@ -397,8 +509,69 @@ func (s EventSpec) Build() (types.Event, error) {
 		}
 		e.Kmod = km
 
+	case "gpu":
+		e.Type = types.EventGPU
+		g := &types.GPUEvent{}
+		if s.GPU != nil {
+			g.Size = s.GPU.Size
+			g.DevPtr = s.GPU.DevPtr
+			g.HostPtr = s.GPU.HostPtr
+			opNames := map[string]uint8{
+				"alloc": 0, "free": 1, "memcpy_htod": 2,
+				"memcpy_dtoh": 3, "memcpy_dtod": 4, "kernel_launch": 5,
+			}
+			if v, ok := opNames[strings.ToLower(s.GPU.Op)]; ok {
+				g.Op = v
+			}
+		}
+		e.GPU = g
+
+	case "cloud_audit":
+		e.Type = types.EventCloudAudit
+		if s.CloudAudit == nil {
+			return e, fmt.Errorf("event type 'cloud_audit' requires a 'cloud_audit:' block")
+		}
+		e.CloudAudit = &types.CloudAuditEvent{
+			Provider:    s.CloudAudit.Provider,
+			Service:     s.CloudAudit.Service,
+			Action:      s.CloudAudit.Action,
+			Principal:   s.CloudAudit.Principal,
+			ResourceARN: s.CloudAudit.ResourceARN,
+			SourceIP:    s.CloudAudit.SourceIP,
+			UserAgent:   s.CloudAudit.UserAgent,
+			ErrorCode:   s.CloudAudit.ErrorCode,
+			Region:      s.CloudAudit.Region,
+			EventID:     s.CloudAudit.EventID,
+		}
+
+	case "net_close":
+		e.Type = types.EventNetClose
+		nc := &types.NetCloseEvent{}
+		if s.NetClose != nil {
+			nc.Sport = s.NetClose.Sport
+			nc.Dport = s.NetClose.Dport
+			nc.Duration = time.Duration(s.NetClose.DurationMs) * time.Millisecond
+			switch strings.ToLower(s.NetClose.Family) {
+			case "ipv6":
+				nc.Family = types.AFInet6
+			default:
+				nc.Family = types.AFInet
+			}
+			if s.NetClose.SrcIP != "" {
+				if err := parseIP(s.NetClose.SrcIP, nc.Saddr[:], nc.Family); err != nil {
+					return e, fmt.Errorf("net_close src_ip: %w", err)
+				}
+			}
+			if s.NetClose.DstIP != "" {
+				if err := parseIP(s.NetClose.DstIP, nc.Daddr[:], nc.Family); err != nil {
+					return e, fmt.Errorf("net_close dst_ip: %w", err)
+				}
+			}
+		}
+		e.NetClose = nc
+
 	default:
-		return e, fmt.Errorf("unknown event type %q (valid: syscall, network, file, dns, privesc, tls, bpf_program, iouring, kmod)", s.Type)
+		return e, fmt.Errorf("unknown event type %q (valid: syscall, network, file, dns, privesc, tls, bpf_program, iouring, kmod, gpu, cloud_audit, net_close)", s.Type)
 	}
 	return e, nil
 }
@@ -451,6 +624,85 @@ func capBit(name string) (uint, bool) {
 // ─────────────────────────────────────────────────────────────────────────────
 // YAML loader
 // ─────────────────────────────────────────────────────────────────────────────
+
+// applyMutantPatch applies a patch map (field-path → value) to a copy of spec
+// and returns the patched copy. Supported field paths:
+//
+//	comm, proc_args
+//	file.filename, file.fd_name, file.op
+//	network.dst_ip, network.src_ip, network.dport, network.sport
+//	dns.qname
+//	syscall.nr
+func applyMutantPatch(spec EventSpec, patch map[string]string) (EventSpec, error) {
+	for path, val := range patch {
+		switch path {
+		case "comm":
+			spec.Comm = val
+		case "proc_args":
+			spec.ProcArgs = val
+		case "file.filename":
+			if spec.File == nil {
+				spec.File = &FileSpec{}
+			}
+			spec.File.Filename = val
+		case "file.fd_name":
+			if spec.File == nil {
+				spec.File = &FileSpec{}
+			}
+			spec.File.FDName = val
+		case "file.op":
+			if spec.File == nil {
+				spec.File = &FileSpec{}
+			}
+			spec.File.Op = val
+		case "network.dst_ip":
+			if spec.Network == nil {
+				spec.Network = &NetworkSpec{}
+			}
+			spec.Network.DstIP = val
+		case "network.src_ip":
+			if spec.Network == nil {
+				spec.Network = &NetworkSpec{}
+			}
+			spec.Network.SrcIP = val
+		case "network.dport":
+			port, err := strconv.ParseUint(val, 10, 16)
+			if err != nil {
+				return spec, fmt.Errorf("mutant patch %q: parse port %q: %w", path, val, err)
+			}
+			if spec.Network == nil {
+				spec.Network = &NetworkSpec{}
+			}
+			spec.Network.Dport = uint16(port)
+		case "network.sport":
+			port, err := strconv.ParseUint(val, 10, 16)
+			if err != nil {
+				return spec, fmt.Errorf("mutant patch %q: parse port %q: %w", path, val, err)
+			}
+			if spec.Network == nil {
+				spec.Network = &NetworkSpec{}
+			}
+			spec.Network.Sport = uint16(port)
+		case "dns.qname":
+			if spec.DNS == nil {
+				spec.DNS = &DNSSpec{}
+			}
+			spec.DNS.QName = val
+		case "syscall.nr":
+			nr, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				return spec, fmt.Errorf("mutant patch %q: parse nr %q: %w", path, val, err)
+			}
+			if spec.Syscall == nil {
+				spec.Syscall = &SyscallSpec{}
+			}
+			spec.Syscall.NR = nr
+		default:
+			return spec, fmt.Errorf("mutant patch: unsupported field path %q (supported: comm, proc_args, file.filename, file.fd_name, file.op, network.dst_ip, network.src_ip, network.dport, network.sport, dns.qname, syscall.nr)", path)
+		}
+	}
+	return spec, nil
+}
 
 // LoadSuite parses a *_test.yaml file and returns the Suite.
 // path is used to resolve relative RulesPath values.

@@ -1,0 +1,89 @@
+rules:
+  - id: evasion_log_clear
+    name: "Log File Cleared"
+    description: "A process deleted or truncated a log file to cover tracks"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: in
+          values: [unlink, truncate]
+        - field: filename
+          op: prefix
+          values: ["/var/log/"]
+        - field: comm
+          op: not_in
+          values: [logrotate, syslog, rsyslog, journald]
+    severity: warning
+    action: alert
+
+  - id: evasion_timestamp_modify
+    name: "File Timestamp Manipulation"
+    description: "A process modified file timestamps to hide activity"
+    event_type: 1
+    condition_group:
+      operator: and
+      conditions:
+        - field: nr
+          op: in
+          values: ["280", "132", "235"]
+        - field: comm
+          op: not_in
+          values: [rsync, git, cp, touch, dpkg, rpm, tar]
+    severity: warning
+    action: alert
+
+  - id: evasion_chmod_sensitive
+    name: "Sensitive File Permission Change"
+    description: "A process changed permissions on a sensitive file"
+    event_type: 1
+    condition_group:
+      operator: and
+      conditions:
+        - field: nr
+          op: in
+          values: ["90", "91", "268"]
+        - field: comm
+          op: not_in
+          values: [dpkg, apt, apt-get, rpm, yum, snap, install]
+    severity: warning
+    action: alert
+
+  - id: evasion_system_binary_replace
+    name: "System Binary Replacement"
+    description: "A non-package-manager process wrote to a system binary directory"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: in
+          values: [write, create]
+        - field: filename
+          op: prefix
+          values: ["/usr/bin/", "/bin/"]
+        - field: comm
+          op: not_in
+          values: [apt, apt-get, dpkg, yum, rpm, snap, dnf, zypper]
+    severity: critical
+    action: alert
+
+  - id: evasion_hidden_elf_in_tmp
+    name: "ELF Binary Written to Temp Directory"
+    description: "A download tool wrote a binary to /tmp or /dev/shm"
+    event_type: 3
+    condition_group:
+      operator: and
+      conditions:
+        - field: op
+          op: in
+          values: [create, write]
+        - field: filename
+          op: prefix
+          values: ["/tmp/", "/dev/shm/"]
+        - field: comm
+          op: in
+          values: [curl, wget]
+    severity: warning
+    action: alert
