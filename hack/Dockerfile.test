@@ -1,0 +1,11 @@
+FROM python:3.11-slim
+
+RUN apt-get update -qq && \
+    apt-get install -y -qq \
+        nmap netcat-openbsd nsenter iproute2 \
+        && rm -rf /var/lib/apt/lists/*
+
+COPY tests/integration/requirements.txt /tmp/requirements.txt
+RUN pip3 install --no-cache-dir -r /tmp/requirements.txt
+
+WORKDIR /workspace

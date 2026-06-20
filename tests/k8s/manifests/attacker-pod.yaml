@@ -1,0 +1,24 @@
+---
+# Attacker pod: runs attack scripts inside the cluster.
+# Scheduled on the SAME NODE as the victim so ebpf-guard can see both.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: attacker
+  namespace: ebpf-guard-test
+  labels:
+    role: attacker
+spec:
+  restartPolicy: Never
+  # nodeSelector injected by test framework to colocate with victim
+  containers:
+    - name: attacker
+      image: python:3.11-slim
+      command: ["sleep", "3600"]
+      securityContext:
+        # Unprivileged by default; individual tests may use privileged variants
+        allowPrivilegeEscalation: false
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "64Mi"
