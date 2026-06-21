@@ -1,0 +1,108 @@
+corpus: ssh_login
+description: >
+  Normal SSH login sequence: sshd accepting connection, reading /etc/passwd
+  (no credential rule targets passwd), PAM authentication, privilege transition
+  to user. No privesc rules exist (event_type 5 has no rules). /etc/shadow is
+  intentionally excluded — cred_shadow_read fires unconditionally.
+
+events:
+  # sshd accepting incoming connection on port 22 — not a suspicious port
+  - type: network
+    comm: sshd
+    network:
+      src_ip: "192.168.1.100"
+      dst_ip: "10.0.0.5"
+      sport: 54500
+      dport: 22
+
+  # PAM reading /etc/passwd for user lookup — no rule targets passwd reads
+  - type: file
+    comm: sshd
+    file:
+      filename: "/etc/passwd"
+      op: read
+
+  # sshd reading its own host keys (not private key in /.ssh/id_* path)
+  - type: file
+    comm: sshd
+    file:
+      filename: "/etc/ssh/ssh_host_rsa_key"
+      op: read
+
+  - type: file
+    comm: sshd
+    file:
+      filename: "/etc/ssh/sshd_config"
+      op: read
+
+  # PAM reading its configuration
+  - type: file
+    comm: sshd
+    file:
+      filename: "/etc/pam.d/sshd"
+      op: read
+
+  - type: file
+    comm: sshd
+    file:
+      filename: "/etc/security/limits.conf"
+      op: read
+
+  # SSH client reads its own known_hosts — comm=ssh is allowlisted for id_ key reads;
+  # known_hosts is not a private key so no rule fires
+  - type: file
+    comm: ssh
+    file:
+      filename: "/home/alice/.ssh/known_hosts"
+      op: read
+
+  # SSH client reading its own private key — comm=ssh allowlisted in cred_ssh_private_key_read
+  - type: file
+    comm: ssh
+    file:
+      filename: "/home/alice/.ssh/id_ed25519"
+      op: read
+
+  # Privilege transitions during login — event_type 5 has no detection rules
+  - type: privesc
+    comm: sshd
+    privesc:
+      caps_gained: ["CAP_SETUID", "CAP_SETGID"]
+
+  - type: privesc
+    comm: sshd
+    privesc:
+      caps_lost: ["CAP_SYS_ADMIN"]
+
+  # DNS resolution during login (e.g. reverse lookup)
+  - type: dns
+    comm: sshd
+    dns:
+      qname: "100.1.168.192.in-addr.arpa"
+      qtype: 12
+
+  # sshd reading nsswitch.conf for user resolution
+  - type: file
+    comm: sshd
+    file:
+      filename: "/etc/nsswitch.conf"
+      op: read
+
+  # Shell reading its config after login
+  - type: file
+    comm: bash
+    file:
+      filename: "/etc/profile"
+      op: read
+
+  - type: file
+    comm: bash
+    file:
+      filename: "/home/alice/.bashrc"
+      op: read
+
+  - type: file
+    comm: bash
+    file:
+      filename: "/home/alice/.bash_profile"
+      op: read

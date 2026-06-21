@@ -84,6 +84,29 @@ tests:
         op: write
     expect: alert
     expect_severity: critical
+    mutants:
+      - description: "double slash in path prefix"
+        patch:
+          file.filename: "//root/.ssh/authorized_keys"
+        expect: alert
+      - description: "path traversal via dot-dot"
+        patch:
+          file.filename: "/root/.ssh/../.ssh/authorized_keys"
+        expect: alert
+      - description: "different home directory still fires"
+        patch:
+          file.filename: "/home/deploy/.ssh/authorized_keys"
+        expect: alert
+      - description: "authorized_keys.bak suffix evades suffix check"
+        patch:
+          file.filename: "/root/.ssh/authorized_keys.bak"
+        expect: no_alert
+        known_bypass: true
+      - description: "uppercase suffix evades case-sensitive suffix check"
+        patch:
+          file.filename: "/root/.ssh/AUTHORIZED_KEYS"
+        expect: no_alert
+        known_bypass: true
 
   - name: "creating authorized_keys2 fires persistence_ssh_authorized_keys"
     rule_id: persistence_ssh_authorized_keys

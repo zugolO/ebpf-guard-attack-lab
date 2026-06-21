@@ -1,0 +1,13 @@
+alerts:
+  - rule_id: tls_ja3_cobalt_strike_default
+    at_event: 0
+  - rule_id: exfil_large_http_post
+    at_event: 1
+  - rule_id: lateral_tool_transfer_wget
+    at_event: 1
+  - rule_id: supply_chain_cicd_runner_network
+    at_event: 1
+  - rule_id: evasion_hidden_elf_in_tmp
+    at_event: 2
+  - rule_id: persistence_systemd_new_service
+    at_event: 3

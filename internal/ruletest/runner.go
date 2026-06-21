@@ -119,6 +119,74 @@ func runTestCase(t *testing.T, engine *correlator.RuleEngine, tc TestCase) {
 	default:
 		t.Errorf("unknown expectation %q (want alert|no_alert|drop)", tc.Expect)
 	}
+
+	// Expand each mutant as a sub-test.
+	for _, m := range tc.Mutants {
+		m := m
+		t.Run("mutant:"+m.Description, func(t *testing.T) {
+			runMutant(t, engine, tc, m)
+		})
+	}
+}
+
+// runMutant applies a patch to the base test case event and asserts the outcome.
+// When m.KnownBypass is true, assertion failures are demoted to log warnings
+// so that documented detection gaps do not block CI.
+func runMutant(t *testing.T, engine *correlator.RuleEngine, base TestCase, m MutantSpec) {
+	t.Helper()
+
+	patched, err := applyMutantPatch(base.Event, m.Patch)
+	if err != nil {
+		t.Fatalf("apply mutant patch: %v", err)
+	}
+
+	event, err := patched.Build()
+	if err != nil {
+		t.Fatalf("build mutant event: %v", err)
+	}
+
+	alerts := engine.Evaluate(event)
+	defer correlator.ReleaseAlerts(alerts)
+
+	expect := m.Expect
+	if expect == "" {
+		expect = base.Expect
+	}
+
+	fail := t.Errorf
+	if m.KnownBypass {
+		fail = func(format string, args ...any) {
+			t.Logf("known bypass: "+format, args...)
+		}
+	}
+
+	switch expect {
+	case ExpectAlert:
+		if len(alerts) == 0 {
+			fail("mutant %q: expected alert but got none — evasion bypass (rule_id=%q)", m.Description, base.effectiveExpectRuleID())
+		}
+	case ExpectNoAlert:
+		if len(alerts) > 0 {
+			fail("mutant %q: expected no_alert but rules fired: %v", m.Description, alertIDs(alerts))
+		}
+	case ExpectDrop:
+		if len(alerts) == 0 {
+			fail("mutant %q: expected drop-action alert but got none", m.Description)
+		} else {
+			found := false
+			for _, a := range alerts {
+				if a.Action == "drop" {
+					found = true
+					break
+				}
+			}
+			if !found {
+				fail("mutant %q: expected action=drop but alerts were: %v", m.Description, alertIDs(alerts))
+			}
+		}
+	default:
+		t.Errorf("mutant %q: unknown expectation %q (want alert|no_alert|drop)", m.Description, expect)
+	}
 }
 
 func assertRuleID(t *testing.T, alerts []types.Alert, ruleID string) {
