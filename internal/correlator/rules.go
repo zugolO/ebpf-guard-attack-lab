@@ -652,10 +652,23 @@ func (re *RuleEngine) Evaluate(e types.Event) []types.Alert {
 
 // ReleaseAlerts returns a slice obtained from Evaluate back to the pool.
 // Call this after the caller is done reading the slice. Passing nil is safe.
+//
+// The nil check is split from the pool-put to keep &s out of the inlined nil
+// path: Go's escape analysis is flow-insensitive, so if &s appears anywhere
+// in an inlined function body the parameter escapes on every call — including
+// the early-return nil path — causing a 24 B heap allocation even when no
+// alerts were produced. By delegating the Put to a //go:noinline helper the
+// inlined ReleaseAlerts only exposes `if s == nil { return }` to callers,
+// achieving 0 allocs/op on the no-match hot path.
 func ReleaseAlerts(s []types.Alert) {
 	if s == nil {
 		return
 	}
+	releaseAlertsToPool(s)
+}
+
+//go:noinline
+func releaseAlertsToPool(s []types.Alert) {
 	s = s[:0]
 	alertsPool.Put(&s)
 }
