@@ -104,6 +104,30 @@ tests:
         nr: 59
     expect: alert
 
+  # ── Port scan connections ──────────────────────────────────────────────────
+  - name: "nmap TCP connect fires recon_port_scan"
+    rule_id: recon_port_scan
+    event:
+      type: network
+      comm: nmap
+      network: { dst_ip: "10.0.0.5", dport: 22 }
+    expect: alert
+
+  - name: "masscan TCP connect fires recon_port_scan"
+    rule_id: recon_port_scan
+    event:
+      type: network
+      comm: masscan
+      network: { dst_ip: "10.0.0.5", dport: 80 }
+    expect: alert
+
+  - name: "curl TCP connect does not fire recon_port_scan"
+    event:
+      type: network
+      comm: curl
+      network: { dst_ip: "10.0.0.5", dport: 443 }
+    expect: no_alert
+
   # ── Negative cases ─────────────────────────────────────────────────────────
   - name: "cat syscall (nr=0 = read) does not fire any recon rule"
     event:

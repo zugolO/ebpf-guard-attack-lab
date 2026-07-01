@@ -130,6 +130,7 @@ class AlertCollector:
         rule_id: Optional[str] = None,
         comm: Optional[str] = None,
         pid: Optional[int] = None,
+        predicate: Optional[Callable[[Alert], bool]] = None,
         window: float = 1.0,
     ):
         """Assert that no matching alert arrives within the window."""
@@ -140,7 +141,7 @@ class AlertCollector:
                 alert = self._q.get(timeout=min(remaining, 0.05))
             except queue.Empty:
                 continue
-            if self._matches(alert, rule_id=rule_id, comm=comm, pid=pid):
+            if self._matches(alert, rule_id=rule_id, comm=comm, pid=pid, predicate=predicate):
                 raise AssertionError(
                     f"Unexpected alert fired: rule_id={alert.rule_id} "
                     f"pid={alert.pid} comm={alert.comm}"

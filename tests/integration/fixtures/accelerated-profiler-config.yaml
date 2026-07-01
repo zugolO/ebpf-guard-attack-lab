@@ -1,0 +1,21 @@
+# Accelerated EWMA anomaly-profiler config for CI (issue #29).
+#
+# Production runs with learning_period: 3600 (one hour), which is
+# impractical to wait out inside a CI test run. This file mirrors the same
+# knobs with a learning_period short enough for the
+# test_low_and_slow_file_scan_flagged_by_anomaly_profiler /
+# test_beacon_just_under_interval_threshold_detected /
+# test_benign_periodic_healthcheck_not_flagged_after_learning tests in
+# tests/integration/test_threshold_evasion.py to complete in well under a
+# minute.
+#
+# Usage (single-machine mode, see tests/integration/conftest.py):
+#   EBPF_GUARD_BINARY=/path/to/ebpf-guard \
+#   EBPF_GUARD_CONFIG=tests/integration/fixtures/accelerated-profiler-config.yaml \
+#   EBPF_GUARD_ACCEL_PROFILE=1 \
+#   make test-integration PYTEST_ARGS="-k threshold_evasion"
+
+profiler:
+  learning_period: 10
+  ewma_weight: 0.3
+  anomaly_threshold: 0.8

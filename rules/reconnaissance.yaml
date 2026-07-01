@@ -62,3 +62,16 @@ rules:
           values: [id, whoami, w, who, last, getent]
     severity: warning
     action: alert
+
+  - id: recon_port_scan
+    name: "Port Scan Connection"
+    description: "A known scanning tool opened a TCP connection consistent with port-scan reconnaissance"
+    event_type: 2
+    condition_group:
+      operator: and
+      conditions:
+        - field: comm
+          op: in
+          values: [nmap, masscan, zmap, unicornscan]
+    severity: warning
+    action: alert

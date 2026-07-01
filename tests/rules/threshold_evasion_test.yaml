@@ -1,0 +1,46 @@
+# threshold_evasion_test.yaml
+#
+# Attack scenario (issue #29): "low-and-slow" evasion — an attacker keeps
+# their action rate below whatever threshold a defender is assumed to be
+# rate-limiting on, hoping repeated events silently stop alerting after the
+# first few.
+#
+# The rule engine in this repo (internal/correlator) evaluates each event
+# independently against static conditions; the only per-rule throttling
+# mechanism is the static `sampling`/`sample_rate` block (internal/correlator
+# sampler.go), which is time-independent (random or hash_pid based), not a
+# sliding-window rate limiter. None of the reconnaissance rules below set a
+# sampling rate, so every matching event must fire regardless of how far
+# apart in time the events are spread — spacing out a scan does not help an
+# attacker evade this engine. These tests pin that behaviour down: they
+# assert expect_first_n == repeat, i.e. the alert must NOT go quiet partway
+# through a long, spread-out sequence.
+suite: threshold_evasion
+rules_path: ../../rules/reconnaissance.yaml
+throttle_tests:
+  - name: "port scan spread over a long window still fires on every connection"
+    rule_id: recon_port_scan
+    event:
+      type: network
+      comm: nmap
+      network: { dst_ip: "10.0.0.5", dport: 22 }
+    repeat: 50
+    expect_first_n: 50 # must not "go quiet" after the first few attempts
+
+  - name: "single-port nmap probe with no sampling configured never gets suppressed"
+    rule_id: recon_port_scan
+    event:
+      type: network
+      comm: nmap
+      network: { dst_ip: "10.0.0.7", dport: 445 }
+    repeat: 100
+    expect_first_n: 100
+
+  - name: "active-connections recon tool invoked repeatedly (low-and-slow) still fires every time"
+    rule_id: recon_active_connections
+    event:
+      type: syscall
+      comm: nmap
+      syscall: { nr: 59 }
+    repeat: 20
+    expect_first_n: 20
