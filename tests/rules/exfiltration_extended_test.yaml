@@ -88,3 +88,39 @@ tests:
         qname: "api.example.com"
         qtype: 1
     expect: no_alert
+
+  # ── DNS entropy / DGA scoring (issue #30: encoding/obfuscation bypass) ─────
+  - name: "high-entropy random-looking label fires exfil_dns_high_entropy_qname"
+    rule_id: exfil_dns_high_entropy_qname
+    event:
+      type: dns
+      comm: implant
+      dns:
+        qname: "w8uo9b4kfel3guxn.exfil.evil.io"
+        qtype: 1
+    expect: alert
+
+  - name: "digit-heavy DGA-scored label fires exfil_dns_high_entropy_qname"
+    rule_id: exfil_dns_high_entropy_qname
+    event:
+      type: dns
+      comm: implant
+      dns:
+        qname: "a8f3c9d21b.c2.example.io"
+        qtype: 1
+    expect: alert
+
+  - name: "known gap: plaintext data fragmented into low-entropy DNS labels evades the entropy/DGA rule"
+    # Documents a real detection gap (issue #30): the rule only scores the
+    # longest label's Shannon entropy / digit ratio / bigram rarity. Raw
+    # exfiltrated ASCII text (no base64/hex encoding) is neither high-entropy
+    # nor digit-heavy, so splitting it across short DNS labels evades this
+    # rule entirely, even though the data is being tunneled out via DNS.
+    rule_id: exfil_dns_high_entropy_qname
+    event:
+      type: dns
+      comm: implant
+      dns:
+        qname: "secretdatasecretdata.0.exfil.evil.io"
+        qtype: 1
+    expect: no_alert
