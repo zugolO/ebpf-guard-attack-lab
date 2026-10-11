@@ -25,6 +25,7 @@ tests:
     expect_severity: critical
 
   - name: "non-root running systemctl does not fire impact rule (uid check)"
+    rule_id: impact_systemd_service_disabled
     event:
       type: syscall
       uid: 1000

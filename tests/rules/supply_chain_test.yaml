@@ -23,6 +23,7 @@ tests:
     expect: alert
 
   - name: "CI runner connecting to HTTPS (443) does not fire"
+    rule_id: supply_chain_cicd_runner_network
     event:
       type: network
       network:
@@ -85,6 +86,7 @@ tests:
 
   # ── Negative cases ─────────────────────────────────────────────────────────
   - name: "writing to ~/.local/lib does not fire supply chain rules"
+    rule_id: supply_chain_pkg_install_etc_write
     event:
       type: file
       comm: pip

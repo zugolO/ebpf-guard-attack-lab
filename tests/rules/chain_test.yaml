@@ -1,5 +1,7 @@
 suite: chain_and_throttle
-rules_path: ../../rules/persistence.yaml
+# rules_path may name a directory; every *.yaml in it is loaded (sorted). This
+# suite needs cross-category rules, so it loads all of rules/.
+rules_path: ../../rules
 tests: []
 
 # ── Multi-event chain tests ───────────────────────────────────────────────────
@@ -63,6 +65,101 @@ chains:
           file:
             filename: "/home/user/.ssh/authorized_keys"
             op: create
+
+  # NOTE: this lab has no dedicated container-escape rule, so the escape phase
+  # is modelled with lateral_ssh_from_container (execve of an ssh client,
+  # nr=59) as a documented proxy for "egress from the container", paired with a
+  # persistence rule. A real escape would need runtime-integrity evidence this
+  # declarative engine cannot express.
+  - name: "container escape (proxy) then persistence – all steps fire"
+    expect_chain: all_fire
+    chain:
+      - name: "ssh client executed from container (escape proxy)"
+        rule_id: lateral_ssh_from_container
+        event:
+          type: syscall
+          comm: ssh
+          syscall:
+            nr: 59
+
+      - name: "cron job dropped for persistence"
+        rule_id: persistence_cron_write
+        event:
+          type: file
+          comm: bash
+          file:
+            filename: "/etc/cron.d/container-escape"
+            op: create
+
+  - name: "credential theft then lateral movement – all steps fire"
+    expect_chain: all_fire
+    chain:
+      - name: "SSH private key read (credential theft)"
+        rule_id: cred_ssh_private_key_read
+        event:
+          type: file
+          comm: cat
+          file:
+            filename: "/home/user/.ssh/id_rsa"
+            op: read
+
+      - name: "netcat pivot tool executed (lateral movement)"
+        rule_id: lateral_netcat_socat_pivot
+        event:
+          type: syscall
+          comm: nc
+          syscall:
+            nr: 59
+
+  - name: "reconnaissance then exfiltration – all steps fire"
+    expect_chain: all_fire
+    chain:
+      - name: "user account enumeration (reconnaissance)"
+        rule_id: recon_user_enum
+        event:
+          type: syscall
+          comm: whoami
+          syscall:
+            nr: 59
+
+      - name: "connection to suspicious exfiltration port"
+        rule_id: exfil_large_http_post
+        event:
+          type: network
+          comm: curl
+          network:
+            dst_ip: "203.0.113.10"
+            dport: 4444
+
+  # Negative case: two UNRELATED pids run near-miss versions of the
+  # credential-theft and lateral-movement steps above. The local engine is a
+  # sequential event injector with aggregate assertions only — it has no
+  # parent/child lineage and never emits a unifying chain-alert, so a none_fire
+  # result proves only that each near-miss step is individually benign (no step
+  # alerts). The real "same two rules executed by two unrelated PIDs must not
+  # raise a chain-alert" assertion lives in
+  # tests/integration/test_attack_chains.py, which observes the live correlator.
+  # The distinct pids below document the intended scenario; the engine does not
+  # correlate events by pid.
+  - name: "unrelated pids run near-miss steps – no step alerts"
+    expect_chain: none_fire
+    chain:
+      - name: "pid 4101 reads a non-key ssh file (near-miss)"
+        event:
+          pid: 4101
+          type: file
+          comm: cat
+          file:
+            filename: "/home/user/.ssh/config"
+            op: read
+
+      - name: "pid 4102 executes a non-pivot tool (near-miss)"
+        event:
+          pid: 4102
+          type: syscall
+          comm: curl
+          syscall:
+            nr: 59
 
 # ── Throttle / sampling regression tests ─────────────────────────────────────
 throttle_tests:

@@ -13,6 +13,7 @@ tests:
     expect_severity: critical
 
   - name: "random JA3 does not fire Cobalt Strike rule"
+    rule_id: tls_ja3_cobalt_strike_default
     event:
       type: tls
       comm: curl

@@ -54,6 +54,7 @@ tests:
     expect: no_alert
 
   - name: "alloc exactly at 500 MiB threshold does not fire (rule uses gt, not gte)"
+    rule_id: gpu_large_alloc_unusual
     event:
       type: gpu
       comm: python3
@@ -84,6 +85,7 @@ tests:
     expect_severity: warning
 
   - name: "python3 launching GPU kernel does not fire (allowlisted)"
+    rule_id: gpu_kernel_launch_unauthorized
     event:
       type: gpu
       comm: python3
@@ -129,6 +131,7 @@ tests:
     expect_severity: warning
 
   - name: "python3 memcpy_htod does not fire (allowlisted)"
+    rule_id: gpu_mining_pattern
     event:
       type: gpu
       comm: python3

@@ -36,6 +36,7 @@ tests:
     expect_severity: critical
 
   - name: "dpkg writing .so does not fire (package manager)"
+    rule_id: integrity_lib_replaced
     event:
       type: file
       comm: dpkg
@@ -76,6 +77,16 @@ tests:
     expect: alert
     expect_severity: critical
 
+  - name: "reading /etc/ld.so.preload does not fire (not a write)"
+    rule_id: integrity_ld_so_preload_write
+    event:
+      type: file
+      comm: cat
+      file:
+        filename: "/etc/ld.so.preload"
+        op: read
+    expect: no_alert
+
   # ── Dynamic linker cache write ────────────────────────────────────────────
   - name: "write to /etc/ld.so.conf.d/ fires integrity_ld_cache_write"
     rule_id: integrity_ld_cache_write
@@ -89,6 +100,7 @@ tests:
     expect_severity: critical
 
   - name: "ldconfig writing ld.so.conf.d does not fire (allowlisted)"
+    rule_id: integrity_ld_cache_write
     event:
       type: file
       comm: ldconfig

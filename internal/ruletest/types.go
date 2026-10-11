@@ -92,8 +92,9 @@ type ThrottleTest struct {
 
 // MutantSpec describes one evasion variant derived from a TestCase.
 // The runner applies Patch to the base event and asserts Expect on the result.
-// When KnownBypass is true, a mismatch is logged as a warning rather than
-// a test failure, allowing known detection gaps to be explicitly documented.
+// When KnownBypass is true, Expect records the bypass outcome (the documented
+// detection gap); a mismatch fails as a stale known_bypass, so a closed gap
+// cannot hide behind an outdated flag.
 type MutantSpec struct {
 	// Description is a human-readable label for this evasion variant.
 	Description string `yaml:"description"`
@@ -103,7 +104,7 @@ type MutantSpec struct {
 	// Expect is the required outcome for this mutant: "alert", "no_alert", or "drop".
 	Expect Expectation `yaml:"expect"`
 	// KnownBypass marks this variant as an accepted detection gap.
-	// When true, outcome mismatches are logged as warnings instead of failures.
+	// When true, an outcome mismatch fails with a "stale known_bypass" message.
 	KnownBypass bool `yaml:"known_bypass,omitempty"`
 }
 

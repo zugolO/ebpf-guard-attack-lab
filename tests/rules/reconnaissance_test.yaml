@@ -47,6 +47,14 @@ tests:
       syscall:
         nr: 59
     expect: alert
+    mutants:
+      # Detection gap: the rule is a closed comm allowlist, so other network
+      # config tools are invisible. Upstream fix: extend the list (ebpf-guard@testing).
+      - description: "ethtool (not in comm list) evades network-config recon rule"
+        patch:
+          comm: ethtool
+        expect: no_alert
+        known_bypass: true
 
   - name: "nmcli execve fires recon_network_config"
     rule_id: recon_network_config
@@ -66,6 +74,14 @@ tests:
       syscall:
         nr: 59
     expect: alert
+    mutants:
+      # Detection gap: same closed comm allowlist; a sniffer enumerating live
+      # connections is not covered. Upstream fix: extend the list (ebpf-guard@testing).
+      - description: "tcpdump (not in comm list) evades active-connections recon rule"
+        patch:
+          comm: tcpdump
+        expect: no_alert
+        known_bypass: true
 
   - name: "ss execve fires recon_active_connections"
     rule_id: recon_active_connections
@@ -114,9 +130,37 @@ tests:
     expect: no_alert
 
   - name: "nginx execve does not fire recon rules (not a recon tool)"
+    rule_id: recon_system_info
     event:
       type: syscall
       comm: nginx
+      syscall:
+        nr: 59
+    expect: no_alert
+
+  - name: "ip read syscall (not execve) does not fire network-config recon rule"
+    rule_id: recon_network_config
+    event:
+      type: syscall
+      comm: ip
+      syscall:
+        nr: 0
+    expect: no_alert
+
+  - name: "netstat read syscall (not execve) does not fire active-connections recon rule"
+    rule_id: recon_active_connections
+    event:
+      type: syscall
+      comm: netstat
+      syscall:
+        nr: 0
+    expect: no_alert
+
+  - name: "passwd execve does not fire user-enum recon rule"
+    rule_id: recon_user_enum
+    event:
+      type: syscall
+      comm: passwd
       syscall:
         nr: 59
     expect: no_alert

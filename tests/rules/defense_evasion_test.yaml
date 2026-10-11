@@ -12,6 +12,15 @@ tests:
         op: unlink
     expect: alert
     expect_severity: warning
+    mutants:
+      # issue #31: comm not_in [logrotate, syslog, rsyslog, journald] — a
+      # process that rewrites task_struct->comm to an allowlisted logger
+      # evades the rule entirely.
+      - description: "comm spoofed to logrotate (allowlisted logger)"
+        patch:
+          comm: logrotate
+        expect: no_alert
+        known_bypass: true
 
   - name: "truncating /var/log/syslog fires evasion_log_clear"
     rule_id: evasion_log_clear
@@ -24,6 +33,7 @@ tests:
     expect: alert
 
   - name: "logrotate unlinking /var/log/ does not fire (allowlisted)"
+    rule_id: evasion_log_clear
     event:
       type: file
       comm: logrotate
@@ -42,6 +52,14 @@ tests:
         nr: 280
     expect: alert
     expect_severity: warning
+    mutants:
+      # issue #31: comm not_in [rsync, git, cp, touch, dpkg, rpm, tar] —
+      # spoofing comm to rsync evades the timestamp-modification rule.
+      - description: "comm spoofed to rsync (allowlisted timestamp tool)"
+        patch:
+          comm: rsync
+        expect: no_alert
+        known_bypass: true
 
   - name: "utime (nr=132) fires evasion_timestamp_modify"
     rule_id: evasion_timestamp_modify
@@ -62,6 +80,7 @@ tests:
     expect: alert
 
   - name: "rsync calling utimensat does not fire (allowlisted)"
+    rule_id: evasion_timestamp_modify
     event:
       type: syscall
       comm: rsync
@@ -87,6 +106,14 @@ tests:
         nr: 90
     expect: alert
     expect_severity: warning
+    mutants:
+      # issue #31: comm not_in [dpkg, apt, apt-get, rpm, yum, snap, install]
+      # — spoofing comm to dpkg evades the sensitive-chmod rule.
+      - description: "comm spoofed to dpkg (allowlisted package manager)"
+        patch:
+          comm: dpkg
+        expect: no_alert
+        known_bypass: true
 
   - name: "fchmod (nr=91) fires evasion_chmod_sensitive"
     rule_id: evasion_chmod_sensitive
@@ -107,6 +134,7 @@ tests:
     expect: alert
 
   - name: "dpkg calling chmod does not fire (package manager allowlisted)"
+    rule_id: evasion_chmod_sensitive
     event:
       type: syscall
       comm: dpkg
@@ -125,6 +153,14 @@ tests:
         op: write
     expect: alert
     expect_severity: critical
+    mutants:
+      # issue #31: comm not_in [apt, apt-get, dpkg, yum, rpm, snap, dnf,
+      # zypper] — spoofing comm to apt evades the binary-replacement rule.
+      - description: "comm spoofed to apt (allowlisted package manager)"
+        patch:
+          comm: apt
+        expect: no_alert
+        known_bypass: true
 
   - name: "create in /bin/ fires evasion_system_binary_replace"
     rule_id: evasion_system_binary_replace
@@ -138,6 +174,7 @@ tests:
     expect_severity: critical
 
   - name: "apt writing to /usr/bin/ does not fire (package manager)"
+    rule_id: evasion_system_binary_replace
     event:
       type: file
       comm: apt
@@ -157,6 +194,15 @@ tests:
         op: create
     expect: alert
     expect_severity: warning
+    mutants:
+      # issue #31: comm is a positive match (in [curl, wget]); a downloader
+      # that rewrites its comm to a legitimate daemon name evades, because
+      # the rule never looks at /proc/[pid]/exe or the process lineage.
+      - description: "comm spoofed to systemd (evades downloader allowlist)"
+        patch:
+          comm: systemd
+        expect: no_alert
+        known_bypass: true
 
   - name: "ELF written to /dev/shm fires evasion_hidden_elf_in_tmp"
     rule_id: evasion_hidden_elf_in_tmp
@@ -178,6 +224,7 @@ tests:
     expect: no_alert
 
   - name: "writing to /tmp/legit.txt does not fire ELF-in-tmp rule"
+    rule_id: evasion_hidden_elf_in_tmp
     event:
       type: file
       comm: python3

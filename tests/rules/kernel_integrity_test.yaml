@@ -35,6 +35,7 @@ tests:
     expect_severity: critical
 
   - name: "kmod loaded from modprobe parent does not fire (allowlisted)"
+    rule_id: kmod_unexpected_parent
     event:
       type: kmod
       comm: modprobe
@@ -75,6 +76,7 @@ tests:
     expect_severity: critical
 
   - name: "module not from tmpfs does not fire kmod_load_from_tmpfs"
+    rule_id: kmod_load_from_tmpfs
     event:
       type: kmod
       comm: modprobe

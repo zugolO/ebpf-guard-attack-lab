@@ -11,6 +11,14 @@ tests:
         filename: "/var/lib/mysql/users.ibd"
         op: read
     expect: alert
+    mutants:
+      # issue #31: this rule keys on op+filename only and has no comm
+      # allowlist, so spoofing comm to the legitimate DB process neither
+      # helps the attacker nor restores the "non-db process" semantics.
+      - description: "comm spoofed to mysqld (legitimate DB process, still fires)"
+        patch:
+          comm: mysqld
+        expect: alert
 
   - name: "non-db process reading /var/lib/postgresql/ fires collection_direct_db_file_access"
     rule_id: collection_direct_db_file_access
@@ -53,6 +61,7 @@ tests:
     expect: alert
 
   - name: "writing to /var/lib/mysql/ does not fire (only open/read triggers)"
+    rule_id: collection_direct_db_file_access
     event:
       type: file
       comm: malware

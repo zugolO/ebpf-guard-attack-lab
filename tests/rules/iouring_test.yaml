@@ -32,6 +32,7 @@ tests:
     expect: alert
 
   - name: "nginx calling io_uring_setup does not fire (allowlisted)"
+    rule_id: iouring_unexpected_setup
     event:
       type: iouring
       comm: nginx
@@ -66,6 +67,19 @@ tests:
         to_submit: 5
     expect: alert
     expect_severity: critical
+    mutants:
+      # io_uring detection is comm-only: the event model exposes no target path
+      # or operation payload (only op/to_submit/flags/fd), so an attacker that
+      # renames itself to an allowlisted service (prctl PR_SET_NAME) submits
+      # ring work with no alert. Same class as issue #31; known_bypass records
+      # the gap instead of failing CI on it. Note that known_bypass demotes a
+      # mismatch to a log line (runner.go runMutant), so this instance
+      # documents the detected gap rather than guarding its closure.
+      - description: "comm spoofed to nginx (allowlisted service) suppresses iouring_unexpected_enter"
+        patch:
+          comm: nginx
+        expect: no_alert
+        known_bypass: true
 
   - name: "curl calling io_uring_enter with submissions fires iouring_unexpected_enter"
     rule_id: iouring_unexpected_enter
@@ -88,6 +102,7 @@ tests:
     expect: no_alert
 
   - name: "mysql calling io_uring_enter does not fire (allowlisted)"
+    rule_id: iouring_unexpected_enter
     event:
       type: iouring
       comm: mysql
@@ -128,6 +143,7 @@ tests:
     expect: alert
 
   - name: "submitting 32 SQEs does not fire high-volume rule (boundary)"
+    rule_id: iouring_high_volume_submit
     event:
       type: iouring
       comm: postgres

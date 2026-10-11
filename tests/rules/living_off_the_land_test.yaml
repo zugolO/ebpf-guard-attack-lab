@@ -48,8 +48,18 @@ tests:
       syscall:
         nr: 59
     expect: alert
+    mutants:
+      # issue #31: detection requires comm == socat; running the real socat
+      # binary while rewriting task_struct->comm via prctl(PR_SET_NAME) to a
+      # legitimate daemon name evades, even though proc_args keeps "EXEC:".
+      - description: "comm spoofed to systemd while proc_args keeps EXEC:"
+        patch:
+          comm: systemd
+        expect: no_alert
+        known_bypass: true
 
   - name: "plain socat TCP connection does not fire shell rule"
+    rule_id: lolbin_socat_shell
     event:
       type: syscall
       comm: socat
@@ -69,6 +79,13 @@ tests:
         op: open
     expect: alert
     expect_severity: warning
+    mutants:
+      # issue #31: this rule keys on filename+op only, so comm spoofing to a
+      # legitimate debugger/daemon does not evade.
+      - description: "comm spoofed to systemd (rule keys on filename, still fires)"
+        patch:
+          comm: systemd
+        expect: alert
 
   - name: "accessing /bin/strace fires lolbin_strace_exec"
     rule_id: lolbin_strace_exec
@@ -79,6 +96,16 @@ tests:
         filename: "/bin/strace"
         op: open
     expect: alert
+
+  - name: "opening a different debugger does not fire strace rule"
+    rule_id: lolbin_strace_exec
+    event:
+      type: file
+      comm: developer
+      file:
+        filename: "/usr/bin/gdb"
+        op: open
+    expect: no_alert
 
   # ── GDB code execution ─────────────────────────────────────────────────────
   - name: "gdb with --batch --ex call system fires lolbin_gdb_exec"
@@ -91,6 +118,15 @@ tests:
         nr: 59
     expect: alert
     expect_severity: warning
+    mutants:
+      # issue #31: comm == gdb is required; PR_SET_NAME spoofing to a
+      # legitimate daemon name evades even though proc_args still carries
+      # "call system(".
+      - description: "comm spoofed to systemd while proc_args keeps call system("
+        patch:
+          comm: systemd
+        expect: no_alert
+        known_bypass: true
 
   - name: "gdb with -ex call system fires lolbin_gdb_exec"
     rule_id: lolbin_gdb_exec
@@ -103,6 +139,7 @@ tests:
     expect: alert
 
   - name: "plain gdb debugging does not fire gdb rule"
+    rule_id: lolbin_gdb_exec
     event:
       type: syscall
       comm: gdb
@@ -122,6 +159,14 @@ tests:
         nr: 59
     expect: alert
     expect_severity: warning
+    mutants:
+      # issue #31: comm in [tclsh, expect]; a payload running tclsh but with
+      # comm rewritten to a legitimate daemon name evades.
+      - description: "comm spoofed to systemd while running tclsh"
+        patch:
+          comm: systemd
+        expect: no_alert
+        known_bypass: true
 
   - name: "expect spawning bash fires lolbin_tclsh_exec"
     rule_id: lolbin_tclsh_exec
@@ -144,6 +189,13 @@ tests:
         op: open
     expect: alert
     expect_severity: warning
+    mutants:
+      # issue #31: this rule keys on filename+op only, so comm spoofing does
+      # not evade.
+      - description: "comm spoofed to systemd (rule keys on filename, still fires)"
+        patch:
+          comm: systemd
+        expect: alert
 
   - name: "accessing /usr/bin/busybox fires lolbin_busybox_shell"
     rule_id: lolbin_busybox_shell
@@ -155,8 +207,19 @@ tests:
         op: open
     expect: alert
 
+  - name: "opening /bin/sh does not fire busybox rule"
+    rule_id: lolbin_busybox_shell
+    event:
+      type: file
+      comm: bash
+      file:
+        filename: "/bin/sh"
+        op: open
+    expect: no_alert
+
   # ── Negative cases ─────────────────────────────────────────────────────────
   - name: "normal ls execve does not fire any LOLBin rule"
+    rule_id: lolbin_tclsh_exec
     event:
       type: syscall
       comm: ls

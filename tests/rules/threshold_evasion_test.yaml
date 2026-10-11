@@ -1,0 +1,52 @@
+suite: threshold_evasion
+# Threshold-evasion regression guard (issue #29).
+#
+# CONTEXT: this lab's copied internal/correlator supports only static per-rule
+# *sampling* (sample_rate / sampling: {rate, mode}); it has no count-based
+# `threshold:`/burst alerting and no EWMA/profiler code at all. None of the
+# bundled rules/ declare a rule-level rate limit either, so there is no
+# rule-level threshold here for a low-and-slow attacker to duck under. The real
+# EWMA / rate-limit evasion is exercised against the live daemon by
+# tests/integration/test_threshold_evasion.py (see that module's docstring).
+#
+# This suite is therefore a REGRESSION GUARD FOR NO-SILENT-SUPPRESSION: for an
+# always-fire signature rule, a long sub-threshold sequence must still alert on
+# EVERY event (expect_first_n == repeat). If per-rule throttling is ever added
+# to internal/correlator and silently drops later events, these cases fail.
+# `throttle_tests:` is not read by the coverage gate (TestCoverageMatrix only
+# scans tests:/chains:), so this suite needs no new rule and does not perturb
+# the 100% positive/negative coverage gate.
+rules_path: ../../rules
+tests: []
+
+# ── Throttle / sampling regression tests ─────────────────────────────────────
+throttle_tests:
+  # Low-and-slow credential theft: 12 reads of /etc/shadow spread over time.
+  # cred_shadow_read is a signature rule (op in [read, open] and filename ==
+  # /etc/shadow) with no allowlist, so it must fire on every single access —
+  # the full sequence alerts, none is silently suppressed.
+  - name: "low-and-slow /etc/shadow reads alert on all 12 accesses (no silent rate-limit drop)"
+    rule_id: cred_shadow_read
+    repeat: 12
+    expect_first_n: 12
+    event:
+      type: file
+      comm: python3
+      file:
+        filename: "/etc/shadow"
+        op: open
+
+  # Negative near-miss: a legitimate crontab refreshing its own spool is in the
+  # persistence_cron_write `comm not_in [crontab, dpkg, apt]` allowlist, so it
+  # must never alert across the same 12-repetition sub-threshold sequence.
+  - name: "allowlisted crontab spool write never alerts across 12 repetitions (near-miss negative)"
+    rule_id: persistence_cron_write
+    repeat: 12
+    expect_first_n: 0
+    expect_remaining: no_alert
+    event:
+      type: file
+      comm: crontab
+      file:
+        filename: "/var/spool/cron/crontabs/root"
+        op: write

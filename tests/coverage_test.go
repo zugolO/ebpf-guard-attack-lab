@@ -21,6 +21,29 @@ var allKnownOperators = []string{
 	"in_cidr", "not_in_cidr", "caps_gained", "caps_dropped",
 }
 
+// Coverage thresholds enforced by this test (task t3-ac): positive coverage
+// must be 100% — every loaded rule needs at least one positive (alert/drop)
+// test — and negative coverage must be 100% of the non-excluded rules, so every
+// rule is exercised against a legitimate near-miss (no_alert) event as a
+// false-positive regression guard. See negativeCoverageExclusions for the only
+// permitted exceptions.
+const (
+	minPositiveCoverage = 100.0
+	minNegativeCoverage = 100.0
+)
+
+// negativeCoverageExclusions lists rule IDs that cannot be given a meaningful
+// negative near-miss test: the rule fires for every plausible event of its
+// type (no allowlist, no threshold boundary, no sibling path to vary), so a
+// no_alert case would either use an unrelated event or document a detection
+// gap. Excluded rules are dropped from both the negative-coverage numerator
+// and denominator, so the gate still demands minNegativeCoverage of the rest.
+// Keep this empty unless a rule genuinely cannot be negative-tested; add a
+// one-line reason next to each entry.
+var negativeCoverageExclusions = []string{
+	// none
+}
+
 type deadTestRef struct {
 	file   string
 	name   string
@@ -43,6 +66,25 @@ func TestCoverageMatrix(t *testing.T) {
 	for _, r := range allRules {
 		ruleByID[r.ID] = r
 	}
+
+	excluded := make(map[string]bool, len(negativeCoverageExclusions))
+	for _, id := range negativeCoverageExclusions {
+		if excluded[id] {
+			// A duplicate would otherwise shrink the denominator twice and
+			// produce a self-contradictory report such as "73/72 (101.4%)".
+			t.Errorf("negative-coverage exclusion %q listed more than once", id)
+			continue
+		}
+		if _, ok := ruleByID[id]; !ok {
+			// A dead exclusion is as dangerous as a dead test: it silently
+			// shrinks the negative-coverage denominator without excusing any
+			// real rule, masking a coverage regression. Fail CI.
+			t.Errorf("negative-coverage exclusion %q not found in any rule file", id)
+			continue
+		}
+		excluded[id] = true
+	}
+	countOfExclusionsPresentInRules := len(excluded)
 
 	// Load all test suites from tests/rules/.
 	suiteEntries, err := os.ReadDir("rules")
@@ -128,12 +170,38 @@ func TestCoverageMatrix(t *testing.T) {
 		case !hasPos:
 			noPositive = append(noPositive, id)
 		case !hasNeg:
-			noNegative = append(noNegative, id)
+			// Excluded rules are dropped from the negative gate below, so they
+			// must not also be reported as a missing negative test.
+			if !excluded[id] {
+				noNegative = append(noNegative, id)
+			}
 		}
 	}
 	sort.Strings(noTests)
 	sort.Strings(noPositive)
 	sort.Strings(noNegative)
+
+	// Negative coverage is measured against the non-excluded rules only.
+	negCovered := 0
+	var negMissing []string
+	for id := range ruleByID {
+		if excluded[id] {
+			continue
+		}
+		if negativeRules[id] {
+			negCovered++
+		} else {
+			negMissing = append(negMissing, id)
+		}
+	}
+	sort.Strings(negMissing)
+	negTotal := len(allRules) - countOfExclusionsPresentInRules
+	posPct := pct(len(positiveRules), len(allRules))
+	negPct := pct(negCovered, negTotal)
+	if negTotal == 0 {
+		// Every rule is excluded: the negative gate is vacuously satisfied.
+		negPct = 100.0
+	}
 
 	// Operator coverage: an operator is "exercised" if it appears in the
 	// conditions of at least one rule that has a positive test.
@@ -147,11 +215,14 @@ func TestCoverageMatrix(t *testing.T) {
 
 	// ── Report ───────────────────────────────────────────────────────────────
 	t.Logf("RULE COVERAGE REPORT")
+	t.Logf("  gates:                         positive ≥ %.1f%%  negative ≥ %.1f%%",
+		minPositiveCoverage, minNegativeCoverage)
 	t.Logf("  rules loaded:                  %d", len(allRules))
-	t.Logf("  rules with ≥1 positive test:  %d  (%.1f%%)",
-		len(positiveRules), pct(len(positiveRules), len(allRules)))
-	t.Logf("  rules with ≥1 negative test:  %d  (%.1f%%)",
-		len(negativeRules), pct(len(negativeRules), len(allRules)))
+	if countOfExclusionsPresentInRules > 0 {
+		t.Logf("  negative-coverage exclusions:  %d  %v", countOfExclusionsPresentInRules, negativeCoverageExclusions)
+	}
+	t.Logf("  rules with ≥1 positive test:  %d  (%.1f%%)", len(positiveRules), posPct)
+	t.Logf("  rules with ≥1 negative test:  %d  (%.1f%%)", negCovered, negPct)
 
 	if len(noTests) > 0 {
 		t.Logf("  rules with NO tests at all:    %d  ← WARN", len(noTests))
@@ -188,6 +259,18 @@ func TestCoverageMatrix(t *testing.T) {
 		for _, dt := range deadTests {
 			t.Logf("  %s  %q  rule_id: %s", dt.file, dt.name, dt.ruleID)
 		}
+	}
+
+	// ── Coverage gate ────────────────────────────────────────────────────────
+	// Unlike the WARN lists above, these checks fail the build so coverage
+	// regressions are caught automatically instead of by eye.
+	if posPct < minPositiveCoverage {
+		t.Errorf("positive coverage %.1f%% < required %.1f%%: %d rule(s) without a positive test: %v",
+			posPct, minPositiveCoverage, len(noTests)+len(noPositive), append(append([]string{}, noTests...), noPositive...))
+	}
+	if negPct < minNegativeCoverage {
+		t.Errorf("negative coverage %.1f%% < required %.1f%% (%d/%d non-excluded rules): %d rule(s) without a negative test: %v",
+			negPct, minNegativeCoverage, negCovered, negTotal, len(negMissing), negMissing)
 	}
 }
 

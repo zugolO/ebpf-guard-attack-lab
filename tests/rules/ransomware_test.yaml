@@ -14,6 +14,7 @@ tests:
     expect_severity: critical
 
   - name: "rename in /tmp/.tmp (excluded path) does not fire"
+    rule_id: ransomware_mass_rename
     event:
       type: file
       comm: malware
@@ -88,6 +89,7 @@ tests:
 
   # ── Negative cases ─────────────────────────────────────────────────────────
   - name: "writing a normal .pdf file does not fire any ransomware rule"
+    rule_id: ransomware_encrypted_extension
     event:
       type: file
       comm: libreoffice

@@ -20,7 +20,11 @@ services:
       - /sys/fs/bpf:/sys/fs/bpf
       - /proc:/host/proc:ro
       - alert-socket:/run/ebpf-guard
+      # TEST-ONLY shortened profiler profile (learning_period 3600 -> 10, etc.).
+      # See hack/ebpf-guard.test.yaml; never use it in production.
+      - ./hack/ebpf-guard.test.yaml:/etc/ebpf-guard/config.yaml:ro
     command:
+      - --config=/etc/ebpf-guard/config.yaml
       - --alert-socket=/run/ebpf-guard/alerts.sock
       - --alert-format=json
       - --rules=/etc/ebpf-guard/rules

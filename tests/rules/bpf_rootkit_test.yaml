@@ -43,6 +43,7 @@ tests:
     expect: no_alert
 
   - name: "cilium-agent loading BPF program does not fire (allowlisted)"
+    rule_id: bpf_prog_load_unauthorized
     event:
       type: bpf_program
       comm: cilium-agent
@@ -98,6 +99,7 @@ tests:
     expect_severity: critical
 
   - name: "cilium loading XDP program does not fire (allowlisted)"
+    rule_id: bpf_xdp_tc_unauthorized
     event:
       type: bpf_program
       comm: cilium-agent

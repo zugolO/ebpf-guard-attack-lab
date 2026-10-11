@@ -24,6 +24,7 @@ tests:
     expect: alert
 
   - name: "dpkg writing to /etc/systemd/system/ does not fire (package install)"
+    rule_id: persistence_systemd_new_service
     event:
       type: file
       comm: dpkg
@@ -55,6 +56,7 @@ tests:
     expect: alert
 
   - name: "crontab writing to /var/spool/cron/ does not fire"
+    rule_id: persistence_cron_write
     event:
       type: file
       comm: crontab
@@ -120,6 +122,16 @@ tests:
     expect_severity: critical
 
   # ── Negative cases ─────────────────────────────────────────────────────────
+  - name: "writing ~/.ssh/known_hosts does not fire persistence_ssh_authorized_keys"
+    rule_id: persistence_ssh_authorized_keys
+    event:
+      type: file
+      comm: ssh
+      file:
+        filename: "/root/.ssh/known_hosts"
+        op: write
+    expect: no_alert
+
   - name: "writing to /var/log/ does not fire persistence rules"
     event:
       type: file

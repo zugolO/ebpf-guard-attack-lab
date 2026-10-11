@@ -45,6 +45,7 @@ tests:
     expect: alert
 
   - name: "rsync writing PHP to web root does not fire (allowlisted deploy)"
+    rule_id: initial_web_shell_write
     event:
       type: file
       comm: rsync
@@ -123,9 +124,20 @@ tests:
     expect: no_alert
 
   - name: "read syscall (nr=0) does not fire macro exec rule"
+    rule_id: initial_office_macro_exec
     event:
       type: syscall
       comm: bash
       syscall:
         nr: 0
+    expect: no_alert
+
+  - name: "build tool DNS lookup (port 53) does not fire package postinstall rule"
+    rule_id: initial_package_postinstall_network
+    event:
+      type: network
+      comm: make
+      network:
+        dst_ip: "8.8.8.8"
+        dport: 53
     expect: no_alert

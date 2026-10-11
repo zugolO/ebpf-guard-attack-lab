@@ -1,0 +1,58 @@
+# hack/ebpf-guard.test.yaml — TEST-ONLY config profile.
+#
+# ⚠️  DO NOT SHIP THIS TO PRODUCTION. ⚠️
+#
+# This is a PARTIAL config: ebpf-guard merges it over its built-in defaults, so
+# only the knobs that need shortening for CI/integration tests are listed here.
+# Everything else (collectors, rule engine, alerting, …) keeps its normal
+# default. It exists so EWMA/profiler anomaly tests can finish in seconds
+# instead of waiting out the production `learning_period: 3600` (issue #29's
+# precondition).
+#
+# Consumed by:
+#   - docker-compose.test.yml   (mounted at /etc/ebpf-guard/config.yaml)
+#   - `make test-integration`   via EBPF_GUARD_CONFIG (conftest.py --config)
+#
+# Regression-guarded by tests/config_profile_test.go.
+
+config_version: "v0.1"
+
+profiler:
+  enabled: true
+
+  # learning_period: production default is 3600s (1h). CI cannot wait an hour,
+  # so the window is cut to 10s. TRADE-OFF: a short baseline sees far fewer
+  # samples, so the learned EWMA mean is noisier and the profiler is more
+  # likely to flag benign drift as anomalous. That is acceptable in an
+  # attack-lab where false positives are the thing under test, and never
+  # acceptable for a production baseline.
+  learning_period: 10
+
+  # min_learning_samples: production default is 100, which can take minutes on
+  # a quiet node. 10 events lets learning complete within the short
+  # learning_period above, so tests can move on to the attack phase in seconds.
+  # TRADE-OFF: a 10-event baseline makes the profile easy to poison; only safe
+  # because this whole environment is disposable.
+  min_learning_samples: 10
+
+  # anomaly_threshold: production default is 0.8. Lowered to 0.7 so an injected
+  # anomaly crosses the alert boundary after fewer observations — the point of
+  # this profile. TRADE-OFF: more sensitive means more benign noise alerts.
+  anomaly_threshold: 0.7
+
+  # ewma.weight: production default is 0.3 (α=0.3 ≈ 1/α ≈ 3.3-sample memory).
+  # Bumped to 0.7 so recent events dominate the moving average and a sudden
+  # behaviour change shows up in a handful of events, keeping EWMA tests quick.
+  # TRADE-OFF: less smoothing → a noisier baseline and more false positives.
+  ewma:
+    weight: 0.7
+
+# Watchdog: disable both pressure watchers so the agent cannot shed collectors
+# (or flat-out disable profilers) mid-test under CPU/RAM contention from the
+# attack simulators. Deterministic collector behaviour matters more here than
+# production's graceful degradation.
+watchdog:
+  memory_pressure:
+    enabled: false
+  cpu_pressure:
+    enabled: false

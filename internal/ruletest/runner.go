@@ -3,6 +3,8 @@ package ruletest
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"sort"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -130,8 +132,8 @@ func runTestCase(t *testing.T, engine *correlator.RuleEngine, tc TestCase) {
 }
 
 // runMutant applies a patch to the base test case event and asserts the outcome.
-// When m.KnownBypass is true, assertion failures are demoted to log warnings
-// so that documented detection gaps do not block CI.
+// When m.KnownBypass is true, Expect records the bypass outcome itself (usually
+// no_alert); a mismatch means the gap was closed and fails as a stale flag.
 func runMutant(t *testing.T, engine *correlator.RuleEngine, base TestCase, m MutantSpec) {
 	t.Helper()
 
@@ -155,8 +157,11 @@ func runMutant(t *testing.T, engine *correlator.RuleEngine, base TestCase, m Mut
 
 	fail := t.Errorf
 	if m.KnownBypass {
+		// The mutant encodes the bypass outcome, so a mismatch means the gap
+		// was closed. Fail loudly so the stale known_bypass flag is removed and
+		// the expectation flipped, instead of silently keeping an outdated record.
 		fail = func(format string, args ...any) {
-			t.Logf("known bypass: "+format, args...)
+			t.Errorf("stale known_bypass (gap appears closed — drop the flag and flip expect): "+format, args...)
 		}
 	}
 
@@ -370,7 +375,46 @@ func runThrottleTest(t *testing.T, engine *correlator.RuleEngine, tt ThrottleTes
 	}
 }
 
+// loadRuleSet loads the rules referenced by path. It honours the documented
+// Suite.RulesPath contract ("rule file or directory"): a regular file is parsed
+// directly, while a directory contributes every *.yaml file inside it, merged in
+// deterministic sorted order. Directory loading lets a single suite build
+// cross-category chains from rules/ without duplicating rule definitions.
 func loadRuleSet(path string) (correlator.RuleSet, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return correlator.RuleSet{}, fmt.Errorf("stat %s: %w", path, err)
+	}
+	if !info.IsDir() {
+		return loadRuleFile(path)
+	}
+
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return correlator.RuleSet{}, fmt.Errorf("read dir %s: %w", path, err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".yaml" {
+			continue
+		}
+		names = append(names, e.Name())
+	}
+	sort.Strings(names) // deterministic merge order across runs
+
+	var merged correlator.RuleSet
+	for _, name := range names {
+		rs, err := loadRuleFile(filepath.Join(path, name))
+		if err != nil {
+			return correlator.RuleSet{}, err
+		}
+		merged.Rules = append(merged.Rules, rs.Rules...)
+	}
+	return merged, nil
+}
+
+// loadRuleFile parses a single rule YAML file.
+func loadRuleFile(path string) (correlator.RuleSet, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return correlator.RuleSet{}, fmt.Errorf("read %s: %w", path, err)

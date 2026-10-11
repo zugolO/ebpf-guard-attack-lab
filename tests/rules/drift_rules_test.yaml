@@ -55,6 +55,7 @@ tests:
     expect: no_alert
 
   - name: "writing to /usr/bin/ does not fire exec drift rule (not open)"
+    rule_id: drift_new_exec_critical
     event:
       type: file
       comm: dpkg

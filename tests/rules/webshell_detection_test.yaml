@@ -12,6 +12,14 @@ tests:
         op: write
     expect: alert
     expect_severity: critical
+    mutants:
+      # issue #31: this rule keys on path+extension only and never consults
+      # comm, so a web-shell dropper that spoofs comm to the web server
+      # process is still caught.
+      - description: "comm spoofed to nginx (rule keys on path+extension, still fires)"
+        patch:
+          comm: nginx
+        expect: alert
 
   - name: "PHP file in /var/www/ fires webshell_php_in_web_root"
     rule_id: webshell_php_in_web_root
@@ -55,6 +63,13 @@ tests:
         op: write
     expect: alert
     expect_severity: critical
+    mutants:
+      # issue #31: path+extension only; comm spoof to the web server does
+      # not evade.
+      - description: "comm spoofed to nginx (rule keys on path+extension, still fires)"
+        patch:
+          comm: nginx
+        expect: alert
 
   - name: "JSP file in JBoss fires webshell_jsp_in_web_root"
     rule_id: webshell_jsp_in_web_root
@@ -77,6 +92,12 @@ tests:
         op: create
     expect: alert
     expect_severity: critical
+    mutants:
+      # issue #31: path+extension only; comm spoof does not evade.
+      - description: "comm spoofed to nginx (rule keys on path+extension, still fires)"
+        patch:
+          comm: nginx
+        expect: alert
 
   - name: "ASP file in /srv/www/ fires webshell_asp_written"
     rule_id: webshell_asp_written
@@ -99,6 +120,19 @@ tests:
         op: create
     expect: alert
     expect_severity: critical
+    mutants:
+      # issue #31: comm is a positive match on the web-server list; spoofing
+      # to another allowlisted web server (nginx) keeps detection...
+      - description: "comm spoofed to nginx (still a web server, still fires)"
+        patch:
+          comm: nginx
+        expect: alert
+      # ...but spoofing comm to a non-web legitimate process evades.
+      - description: "comm spoofed to systemd (non-web process, evades)"
+        patch:
+          comm: systemd
+        expect: no_alert
+        known_bypass: true
 
   - name: ".phtml file creation fires webshell_script_write_via_web_process"
     rule_id: webshell_script_write_via_web_process
@@ -131,9 +165,16 @@ tests:
         op: write
     expect: alert
     expect_severity: critical
+    mutants:
+      # issue #31: filename-contains match only; comm spoof does not evade.
+      - description: "comm spoofed to nginx (rule keys on filename, still fires)"
+        patch:
+          comm: nginx
+        expect: alert
 
   # ── Negative cases ────────────────────────────────────────────────────────
   - name: "writing a CSS file does not fire any webshell rule"
+    rule_id: webshell_php_in_web_root
     event:
       type: file
       comm: nginx
@@ -143,9 +184,40 @@ tests:
     expect: no_alert
 
   - name: "writing a JS file does not fire any webshell rule"
+    rule_id: webshell_common_filename
     event:
       type: file
       comm: node
+      file:
+        filename: "/var/www/html/app.js"
+        op: write
+    expect: no_alert
+
+  - name: "Java source under Tomcat webapps does not fire JSP rule"
+    rule_id: webshell_jsp_in_web_root
+    event:
+      type: file
+      comm: java
+      file:
+        filename: "/opt/tomcat/webapps/ROOT/HealthServlet.java"
+        op: write
+    expect: no_alert
+
+  - name: "HTML file under /srv/www does not fire ASP rule"
+    rule_id: webshell_asp_written
+    event:
+      type: file
+      comm: nginx
+      file:
+        filename: "/srv/www/app/index.html"
+        op: write
+    expect: no_alert
+
+  - name: "web server writing a JS asset does not fire script-write rule"
+    rule_id: webshell_script_write_via_web_process
+    event:
+      type: file
+      comm: nginx
       file:
         filename: "/var/www/html/app.js"
         op: write

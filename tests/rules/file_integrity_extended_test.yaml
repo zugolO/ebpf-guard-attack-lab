@@ -35,6 +35,7 @@ tests:
     expect: alert
 
   - name: "subdirectory under /usr/bin/ does not fire (regex requires single component)"
+    rule_id: fim_binary_replaced_in_system_dir
     event:
       type: file
       comm: malware
@@ -75,6 +76,16 @@ tests:
         op: write
     expect: alert
 
+  - name: "reading a shared library does not fire fim_library_replaced (not a write)"
+    rule_id: fim_library_replaced
+    event:
+      type: file
+      comm: ldd
+      file:
+        filename: "/lib/x86_64-linux-gnu/libc.so.6"
+        op: read
+    expect: no_alert
+
   # ── /etc/passwd write ──────────────────────────────────────────────────────
   - name: "writing /etc/passwd fires fim_passwd_write"
     rule_id: fim_passwd_write
@@ -108,11 +119,12 @@ tests:
         op: read
     expect: no_alert
 
-  - name: "reading /etc/hostname does not fire passwd write rule"
+  - name: "reading /etc/passwd does not fire passwd write rule"
+    rule_id: fim_passwd_write
     event:
       type: file
       comm: login
       file:
-        filename: "/etc/hostname"
+        filename: "/etc/passwd"
         op: read
     expect: no_alert

@@ -53,6 +53,7 @@ tests:
     expect: alert
 
   - name: "HTTPS to port 443 does not fire exfil rule"
+    rule_id: exfil_large_http_post
     event:
       type: network
       comm: curl

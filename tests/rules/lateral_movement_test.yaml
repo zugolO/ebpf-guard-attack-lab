@@ -11,6 +11,16 @@ tests:
         nr: 59
     expect: alert
     expect_severity: warning
+    mutants:
+      # issue #31: comm in [ssh, sshpass, autossh] is a positive match; an
+      # attacker running the real ssh client but rewriting comm to the
+      # legitimate sshd server name evades. Detection would need parent_comm /
+      # /proc/[pid]/exe / lineage rather than bare comm.
+      - description: "comm spoofed to sshd (legitimate SSH server)"
+        patch:
+          comm: sshd
+        expect: no_alert
+        known_bypass: true
 
   - name: "sshpass execve fires lateral_ssh_from_container"
     rule_id: lateral_ssh_from_container
@@ -31,6 +41,14 @@ tests:
         nr: 59
     expect: alert
     expect_severity: warning
+    mutants:
+      # issue #31: comm == ssh-keygen is required; spoofing comm to the sshd
+      # server name evades while the keygen exec (nr=59) still happens.
+      - description: "comm spoofed to sshd (legitimate SSH server)"
+        patch:
+          comm: sshd
+        expect: no_alert
+        known_bypass: true
 
   # ── SSH port forwarding ────────────────────────────────────────────────────
   - name: "ssh connecting to port 8080 fires lateral_port_forward_ssh"
@@ -43,8 +61,18 @@ tests:
         dport: 8080
     expect: alert
     expect_severity: warning
+    mutants:
+      # issue #31: comm == ssh is required for the tunnel rule; a client that
+      # masquerades as the sshd server name evades the non-standard-port
+      # detection.
+      - description: "comm spoofed to sshd (legitimate SSH server, evades)"
+        patch:
+          comm: sshd
+        expect: no_alert
+        known_bypass: true
 
   - name: "ssh connecting to port 22 does not fire port-forward rule"
+    rule_id: lateral_port_forward_ssh
     event:
       type: network
       comm: ssh
@@ -64,6 +92,15 @@ tests:
         dport: 8080
     expect: alert
     expect_severity: warning
+    mutants:
+      # issue #31: comm in [wget, curl] is a positive match; a downloader that
+      # rewrites comm to the legitimate web-server name (nginx) evades the
+      # tool-transfer rule.
+      - description: "comm spoofed to nginx (legitimate web server, evades)"
+        patch:
+          comm: nginx
+        expect: no_alert
+        known_bypass: true
 
   - name: "curl connecting to port 443 fires lateral_tool_transfer_wget"
     rule_id: lateral_tool_transfer_wget
@@ -85,8 +122,16 @@ tests:
         dport: 3389
     expect: alert
     expect_severity: warning
+    mutants:
+      # issue #31: this rule keys on dport only, so comm spoofing does not
+      # evade.
+      - description: "comm spoofed to systemd (rule keys on dport, still fires)"
+        patch:
+          comm: systemd
+        expect: alert
 
   - name: "outbound HTTPS (port 443) does not fire RDP rule"
+    rule_id: lateral_rdp_connection
     event:
       type: network
       network:
@@ -104,6 +149,14 @@ tests:
         nr: 59
     expect: alert
     expect_severity: critical
+    mutants:
+      # issue #31: comm in [kubectl, k9s, helm, istioctl]; spoofing comm to the
+      # legitimate kubelet node agent evades the in-pod kubectl rule.
+      - description: "comm spoofed to kubelet (legitimate node agent, evades)"
+        patch:
+          comm: kubelet
+        expect: no_alert
+        known_bypass: true
 
   - name: "k9s execve fires lateral_kubectl_exec_from_pod"
     rule_id: lateral_kubectl_exec_from_pod
@@ -125,8 +178,31 @@ tests:
         op: open
     expect: alert
     expect_severity: warning
+    mutants:
+      # issue #31: comm not_in [ssh, scp, sftp, rsync, git] — a credential
+      # thief that rewrites comm to the allowlisted rsync name evades.
+      - description: "comm spoofed to rsync (allowlisted, evades)"
+        patch:
+          comm: rsync
+        expect: no_alert
+        known_bypass: true
+      # PLAN.md task E: filename is matched with `prefix ["/tmp/ssh-"]`, so the
+      # same agent socket reached through /proc/<pid>/root/... or a bind mount
+      # under another pathname is not matched. Detection would need
+      # mount/namespace-aware path resolution, which the event model lacks.
+      - description: "same socket via host-root escape /proc/1/root/tmp/ssh-.../agent (evades)"
+        patch:
+          file.filename: "/proc/1/root/tmp/ssh-AbCdEf123/agent.12345"
+        expect: no_alert
+        known_bypass: true
+      - description: "same socket via a bind mount at a benign path (evades)"
+        patch:
+          file.filename: "/run/ebpf-guard-bind/agent.12345"
+        expect: no_alert
+        known_bypass: true
 
   - name: "ssh itself opening SSH agent socket does not fire"
+    rule_id: lateral_ssh_agent_socket_access
     event:
       type: file
       comm: ssh
@@ -145,6 +221,14 @@ tests:
         nr: 59
     expect: alert
     expect_severity: warning
+    mutants:
+      # issue #31: comm in [nc, socat, nmap, ncat, netcat]; spoofing comm to a
+      # legitimate daemon name evades the pivot rule.
+      - description: "comm spoofed to systemd (legitimate daemon, evades)"
+        patch:
+          comm: systemd
+        expect: no_alert
+        known_bypass: true
 
   - name: "socat execve fires lateral_netcat_socat_pivot"
     rule_id: lateral_netcat_socat_pivot
@@ -175,6 +259,13 @@ tests:
         op: write
     expect: alert
     expect_severity: warning
+    mutants:
+      # issue #31: this rule keys on uid+op+path, so comm spoofing does not
+      # evade.
+      - description: "comm spoofed to systemd (rule keys on uid+path, still fires)"
+        patch:
+          comm: systemd
+        expect: alert
 
   - name: "shell script written to /mnt/ by root fires lateral_shared_volume_exec"
     rule_id: lateral_shared_volume_exec
@@ -187,6 +278,7 @@ tests:
     expect: alert
 
   - name: "ELF written to /shared/ by non-root does not fire (uid check)"
+    rule_id: lateral_shared_volume_exec
     event:
       type: file
       uid: 1000
@@ -197,6 +289,7 @@ tests:
 
   # ── Negative cases ─────────────────────────────────────────────────────────
   - name: "normal ls execve does not fire any lateral movement rule"
+    rule_id: lateral_netcat_socat_pivot
     event:
       type: syscall
       comm: ls
@@ -205,10 +298,38 @@ tests:
     expect: no_alert
 
   - name: "HTTPS connection to port 443 does not fire lateral movement rules"
+    rule_id: lateral_tool_transfer_wget
     event:
       type: network
       comm: cat
       network:
         dst_ip: "93.184.216.34"
         dport: 443
+    expect: no_alert
+
+  - name: "git over ssh does not fire lateral_ssh_from_container"
+    rule_id: lateral_ssh_from_container
+    event:
+      type: syscall
+      comm: git
+      syscall:
+        nr: 59
+    expect: no_alert
+
+  - name: "openssl key generation does not fire lateral_ssh_keygen_new_key"
+    rule_id: lateral_ssh_keygen_new_key
+    event:
+      type: syscall
+      comm: openssl
+      syscall:
+        nr: 59
+    expect: no_alert
+
+  - name: "kubelet node agent does not fire lateral_kubectl_exec_from_pod"
+    rule_id: lateral_kubectl_exec_from_pod
+    event:
+      type: syscall
+      comm: kubelet
+      syscall:
+        nr: 59
     expect: no_alert

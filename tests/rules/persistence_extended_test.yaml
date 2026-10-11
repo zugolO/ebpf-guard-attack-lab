@@ -12,6 +12,14 @@ tests:
         op: create
     expect: alert
     expect_severity: warning
+    mutants:
+      # issue #31: comm not_in [apt, dpkg, systemd, systemctl, rpm, yum] —
+      # spoofing comm to systemd (a legitimate process) evades the timer rule.
+      - description: "comm spoofed to systemd (allowlisted, evades)"
+        patch:
+          comm: systemd
+        expect: no_alert
+        known_bypass: true
 
   - name: "timer unit written to /root/ fires persist_systemd_timer_created"
     rule_id: persist_systemd_timer_created
@@ -24,6 +32,7 @@ tests:
     expect: alert
 
   - name: "apt writing a .timer file does not fire (allowlisted)"
+    rule_id: persist_systemd_timer_created
     event:
       type: file
       comm: apt
@@ -42,6 +51,14 @@ tests:
         nr: 88
     expect: alert
     expect_severity: warning
+    mutants:
+      # issue #31: comm not_in [systemctl, systemd, dpkg, apt, apt-get, rpm] —
+      # spoofing comm to systemd evades the symlink persistence rule.
+      - description: "comm spoofed to systemd (allowlisted, evades)"
+        patch:
+          comm: systemd
+        expect: no_alert
+        known_bypass: true
 
   - name: "symlink syscall by python3 fires persist_systemd_wants_symlink"
     rule_id: persist_systemd_wants_symlink
@@ -53,6 +70,7 @@ tests:
     expect: alert
 
   - name: "systemctl creating symlink does not fire (allowlisted)"
+    rule_id: persist_systemd_wants_symlink
     event:
       type: syscall
       comm: systemctl
@@ -71,8 +89,17 @@ tests:
         op: create
     expect: alert
     expect_severity: warning
+    mutants:
+      # issue #31: comm not_in [dpkg, apt, apt-get, rpm, yum, snap] —
+      # spoofing comm to dpkg evades the profile.d persistence rule.
+      - description: "comm spoofed to dpkg (allowlisted, evades)"
+        patch:
+          comm: dpkg
+        expect: no_alert
+        known_bypass: true
 
   - name: "dpkg writing to /etc/profile.d/ does not fire (allowlisted)"
+    rule_id: persist_profile_d_write
     event:
       type: file
       comm: dpkg
@@ -92,6 +119,13 @@ tests:
         op: write
     expect: alert
     expect_severity: warning
+    mutants:
+      # issue #31: this rule keys on filename+op only, so comm spoofing does
+      # not evade.
+      - description: "comm spoofed to systemd (rule keys on filename, still fires)"
+        patch:
+          comm: systemd
+        expect: alert
 
   - name: "writing /etc/environment fires persist_etc_environment_write (2)"
     rule_id: persist_etc_environment_write
@@ -114,14 +148,32 @@ tests:
         op: write
     expect: alert
     expect_severity: warning
+    mutants:
+      # issue #31: this rule keys on filename+op only, so comm spoofing does
+      # not evade.
+      - description: "comm spoofed to systemd (rule keys on filename, still fires)"
+        patch:
+          comm: systemd
+        expect: alert
 
   # ── Negative cases ─────────────────────────────────────────────────────────
   - name: "reading /etc/profile does not fire persistence rule"
+    rule_id: persist_etc_profile_write
     event:
       type: file
       comm: bash
       file:
         filename: "/etc/profile"
+        op: read
+    expect: no_alert
+
+  - name: "reading /etc/environment does not fire environment write rule"
+    rule_id: persist_etc_environment_write
+    event:
+      type: file
+      comm: bash
+      file:
+        filename: "/etc/environment"
         op: read
     expect: no_alert
 

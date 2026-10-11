@@ -1,0 +1,126 @@
+suite: toctou_watchdog
+# Regression suite for issue #33: TOCTOU / symlink-race + watchdog / self-tamper.
+#
+# This suite deliberately loads the WHOLE rules/ directory (rules_path below)
+# because it spans three rule families:
+#   * runtime-integrity.yaml    -> integrity_lib_replaced
+#   * ebpf-subversion.yaml      -> ebpf_subversion_unauthorized_caller
+#   * persistence-extended.yaml -> persist_systemd_wants_symlink
+#
+# The `mutants` below exercise the two detection gaps this suite documents.
+# `expect: no_alert` is whole-engine (the runner fails if ANY rule fires), so
+# `known_bypass: true` is used only where the event genuinely makes no rule
+# fire; it keeps the gap visible without failing CI.
+#
+#   1. TOCTOU / symlink swap -- there is no resolved-symlink-target (readlink)
+#      field in the event model. EventSpec.FileSpec exposes only `filename`,
+#      `fd_name` and `op` (internal/ruletest/types.go), so the final symlink
+#      target is invisible to every rule. A rename(2) does NOT evade detection:
+#      ransomware_mass_rename independently fires on the rename shape, so that
+#      mutant is asserted as `expect: alert` with an honest description. The
+#      unresolved-target half is asserted as the documented non-outcome in
+#      tests/integration/test_toctou_race.py; closing it needs dentry/readlink
+#      resolution, not a YAML change.
+#
+#   2. Watchdog / self-tamper -- ebpf_subversion_unauthorized_caller trusts bare
+#      `comm`, which the attacker controls via prctl(PR_SET_NAME). Spoofing
+#      comm=ebpf-guard defeats the rule, and no other rule fires for that event,
+#      which is exactly why out-of-band BPF attestation / the heartbeat tick
+#      (internal/watchdog in the real agent) is required to notice a detached or
+#      frozen program.
+#
+# Positive cases for every referenced rule plus a near-miss negative keep the
+# TestCoverageMatrix gates at 100% and every rule_id here is a real rule.
+rules_path: ../../rules
+tests:
+  # ── TOCTOU / symlink swap ──────────────────────────────────────────────────
+  - name: ".so write under /usr/lib/ by an unexpected comm fires integrity_lib_replaced"
+    rule_id: integrity_lib_replaced
+    event:
+      type: file
+      comm: malware
+      file:
+        filename: "/usr/lib/x86_64-linux-gnu/libcrypto.so.3"
+        op: write
+    expect: alert
+    expect_severity: critical
+    mutants:
+      # Issue #33 gap #1: a rename(2)/swap hides `op=write` from
+      # integrity_lib_replaced, but ransomware_mass_rename independently fires
+      # on the rename shape (op=rename + filename outside /tmp,/proc,/sys,/dev),
+      # so this is NOT a whole-engine bypass and is asserted as an alert. The
+      # half that stays unobservable is the *resolved* symlink target, asserted
+      # in tests/integration/test_toctou_race.py.
+      - description: "rename evades integrity_lib_replaced's write-op condition, but ransomware_mass_rename still fires on the rename shape"
+        patch:
+          file.op: rename
+        expect: alert
+
+  # NB: a dpkg/ldconfig .so write under /usr/lib/ is a valid co-condition
+  # near-miss, but this suite loads the whole rules/ dir, where
+  # fim_library_replaced (file-integrity-extended.yaml) is comm-agnostic and
+  # would fire regardless. The filename-prefix case below is the near-miss that
+  # isolates integrity_lib_replaced.
+  - name: "writing a .so outside the system library dirs does not fire (near-miss)"
+    rule_id: integrity_lib_replaced
+    event:
+      type: file
+      comm: malware
+      file:
+        filename: "/opt/vendor/libcrypto.so.3"
+        op: write
+    expect: no_alert
+
+  # ── Watchdog / self-tamper ─────────────────────────────────────────────────
+  - name: "root process detaching a BPF program fires ebpf_subversion_unauthorized_caller"
+    rule_id: ebpf_subversion_unauthorized_caller
+    event:
+      type: syscall
+      uid: 0
+      comm: bpftool
+      syscall:
+        nr: 321
+        args: [9, 0, 0, 0, 0, 0]
+    expect: alert
+    expect_severity: critical
+    mutants:
+      # Issue #33 gap #2: the rule's only discriminator is bare `comm`, which
+      # the attacker controls via prctl(PR_SET_NAME). A rootkit that renames
+      # itself to ebpf-guard is invisible here — hence the need for out-of-band
+      # BPF attestation / heartbeat (internal/watchdog) instead of comm trust.
+      - description: "comm spoofed to ebpf-guard — bare-comm allowlist evaded"
+        patch:
+          comm: ebpf-guard
+        expect: no_alert
+        known_bypass: true
+
+  - name: "bpf() with a non-detach command does not fire the unauthorized caller rule (near-miss)"
+    rule_id: ebpf_subversion_unauthorized_caller
+    event:
+      type: syscall
+      uid: 0
+      comm: bpftool
+      syscall:
+        nr: 321
+        args: [5, 0, 0, 0, 0, 0]
+    expect: no_alert
+
+  # ── Symlink persistence (systemd wants) ────────────────────────────────────
+  - name: "symlink syscall (nr=88) by an unexpected process fires persist_systemd_wants_symlink"
+    rule_id: persist_systemd_wants_symlink
+    event:
+      type: syscall
+      comm: malware
+      syscall:
+        nr: 88
+    expect: alert
+    expect_severity: warning
+
+  - name: "systemctl creating a symlink does not fire (allowlisted near-miss)"
+    rule_id: persist_systemd_wants_symlink
+    event:
+      type: syscall
+      comm: systemctl
+      syscall:
+        nr: 88
+    expect: no_alert
