@@ -18,12 +18,12 @@ ebpf-guard — не только «правило стреляет на одно
 
 ---
 
-## 1. Зависшие PR — закрыть первыми
+## 1. Зависшие PR — разобраны (2026-10-11)
 
-| PR | Что | Действие |
-|----|-----|----------|
-| 🟡 [#28](https://github.com/zugolO/ebpf-guard-attack-lab/pull/28) | Фикс CI: `test-unit` гоняет реальные тесты движка, sync ветки на main | довести до зелёного, смёржить |
-| 🟡 [#34](https://github.com/zugolO/ebpf-guard-attack-lab/pull/34) | Encoding/obfuscation bypass tests (закрывает #30) | ревью, довести, смёржить |
+| PR | Что | Итог |
+|----|-----|------|
+| ✅ [#34](https://github.com/zugolO/ebpf-guard-attack-lab/pull/34) | Encoding/obfuscation bypass tests (закрывает #30) | **смёржен в main** (go vet/go test/py_compile зелёные, ревью-тредов нет) |
+| ❌ [#28](https://github.com/zugolO/ebpf-guard-attack-lab/pull/28) | Фикс CI + sync ветки | **закрыт** — чужая база, падающий bench-CI, устаревший дифф. Полезный фикс вынесен в задачу F ниже |
 
 ---
 
@@ -84,7 +84,12 @@ ebpf-guard — не только «правило стреляет на одно
    `test_watchdog_evasion.py`.
    Негатив: штатный `SIGHUP` (reload) не трактуется как tamper.
 
-### 🟡 #30 — Encoding/obfuscation bypass → см. PR #34 выше.
+### ✅ #30 — Encoding/obfuscation bypass → **сделано**, PR #34 смёржен в main.
+Добавлено: правило `exfil_dns_high_entropy_qname`, позитив/негатив по DNS-энтропии,
+`mutants` с `known_bypass` на case-sensitive `contains` в `lolbin_socat_shell`,
+Python-атаки (base64/hex/env-split/fragmented-DNS). Найден сопутствующий баг
+`qname_is_dga` getter (`internal/correlator/rules.go:1171`) — обходит guard
+`len(label) >= 8`; задокументирован как follow-up (см. задачу G ниже).
 
 ---
 
@@ -119,17 +124,36 @@ ebpf-guard — не только «правило стреляет на одно
 чтение `/proc/1/root/...`. Проверить, резолвит ли ebpf-guard пути в host-namespace
 или его можно ослепить сменой namespace.
 
+### ⬜ F. `make test-unit` должен гонять реальные тесты движка (из закрытого PR #28)
+Сейчас `test-unit:` в `Makefile` запускает только `$(GOTEST) ./internal/...`, а там
+**нет** тестовых файлов — все rule-engine тесты (`TestRuleSuites`,
+`TestCoverageMatrix`, `TestSnapshot`, `TestReplayTraces`, `TestBenignCorpus`) лежат
+в `./tests/...`. Значит CI-джоб «Unit Tests (Go)» зелёный вхолостую и не ловит
+регресс правил. Фикс: `test-unit` должен покрывать и `./internal/...`, и `./tests/...`.
+Приоритет: высокий — это маскирует реальные падения. (Был в PR #28, но тот целил в
+неправильную базу и устарел; берём только этот фикс отдельным маленьким PR.)
+
+### ⬜ G. Фикс `qname_is_dga` field getter (follow-up из #30)
+`internal/correlator/rules.go:1171` — getter возвращает `"true"` при
+`NgramScore >= threshold`, обходя guard `len(label) >= 8`, который соблюдает сам
+`NgramDGADetector.IsDGA()`. Короткие обычные слова (`example`) ложно детектятся
+как DGA через это поле. Правило из #30 обходит баг (использует `qname_entropy` /
+`qname_digit_ratio` напрямую), но сам getter стоит починить. Относится к коду
+движка ebpf-guard, не к attack-lab — возможно, заводить в основном репозитории.
+
 ---
 
 ## 4. Порядок работ (рекомендуемый)
 
-1. Закрыть зависшие PR #28, #34 (разблокировать CI и обфускацию).
-2. Задача A (негативное покрытие) + C (gate) — фундамент качества.
-3. #31 (comm-спуфинг) — механизм готов, быстрый результат.
-4. #32 (chains / lineage) — корреляция, высокая ценность.
-5. B → #29 (EWMA threshold evasion) — требует тест-профиля.
-6. #33 (TOCTOU + watchdog) — самый сложный слой (атака на сам детектор).
-7. D, E — добить каналы обхода (io_uring, namespace).
+1. ~~Разобрать зависшие PR~~ — сделано: #34 смёржен, #28 закрыт.
+2. Задача **F** (`make test-unit` гоняет реальные тесты) — срочно, маскирует регресс CI.
+3. Задача A (негативное покрытие) + C (gate) — фундамент качества.
+4. #31 (comm-спуфинг) — механизм готов, быстрый результат.
+5. #32 (chains / lineage) — корреляция, высокая ценность.
+6. B → #29 (EWMA threshold evasion) — требует тест-профиля.
+7. #33 (TOCTOU + watchdog) — самый сложный слой (атака на сам детектор).
+8. D, E — добить каналы обхода (io_uring, namespace).
+9. G — фикс `qname_is_dga` (в основном репо ebpf-guard).
 
 ---
 
