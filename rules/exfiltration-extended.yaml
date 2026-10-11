@@ -9,3 +9,25 @@ rules:
       values: ["4444", "31337", "8080", "1337", "6666", "9001", "9090", "1234"]
     severity: warning
     action: alert
+
+  - id: exfil_dns_high_entropy_qname
+    name: "High-Entropy or Digit-Heavy DNS Query"
+    description: "A DNS query's leading label has high Shannon entropy or a high digit ratio, consistent with DNS tunneling or a domain-generation algorithm"
+    event_type: 4
+    condition_group:
+      operator: or
+      conditions:
+        # NOTE: intentionally does NOT use the "qname_is_dga" field — its
+        # getFieldValue implementation (internal/correlator/rules.go) also
+        # returns "true" whenever NgramScore >= threshold, bypassing the
+        # len(label) >= 8 guard that NgramDGADetector.IsDGA() itself enforces.
+        # That makes short, ordinary words (e.g. "example") false-positive.
+        # qname_entropy / qname_digit_ratio don't have that bug.
+        - field: qname_entropy
+          op: gt
+          values: ["3.8"]
+        - field: qname_digit_ratio
+          op: gt
+          values: ["0.4"]
+    severity: warning
+    action: alert
